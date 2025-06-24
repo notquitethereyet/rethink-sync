@@ -1,0 +1,186 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{booktabs}
+\usepackage{geometry}
+
+\geometry{margin=1in}
+
+% Define colors for code listings
+\definecolor{codegreen}{rgb}{0,0.6,0}
+\definecolor{codegray}{rgb}{0.5,0.5,0.5}
+\definecolor{codepurple}{rgb}{0.58,0,0.82}
+\definecolor{backcolour}{rgb}{0.95,0.95,0.92}
+
+\lstdefinestyle{mystyle}{
+    backgroundcolor=\color{backcolour},   
+    commentstyle=\color{codegreen},
+    keywordstyle=\color{magenta},
+    numberstyle=\tiny\color{codegray},
+    stringstyle=\color{codepurple},
+    basicstyle=\ttfamily\footnotesize,
+    breakatwhitespace=false,         
+    breaklines=true,                 
+    captionpos=b,                    
+    keepspaces=true,                 
+    numbers=left,                    
+    numbersep=5pt,                  
+    showspaces=false,                
+    showstringspaces=false,
+    showtabs=false,                  
+    tabsize=2
+}
+\lstset{style=mystyle}
+
+\title{Rethink BH Automation System}
+\author{AllCheer Tools}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+\tableofcontents
+\newpage
+
+\section{Executive Summary}
+The Rethink BH Automation System is a robust, cloud-native solution designed to automate the extraction of appointment data from the Rethink Behavioral Health platform and securely ingest it into a Supabase PostgreSQL database. This document outlines the system architecture, authentication flow, data ingestion process, and deployment strategy.
+
+\section{System Overview}
+The system consists of the following key components:
+\begin{itemize}
+    \item A FastAPI-based web service deployed on Google Cloud Run
+    \item Secure credential management using Google Secret Manager
+    \item Automated data extraction from Rethink BH platform
+    \item Data transformation and validation
+    \item Secure storage in Supabase PostgreSQL
+    \item Integration with Make.com for workflow automation
+\end{itemize}
+
+\section{Authentication Flow}
+The system implements a multi-layered authentication approach:
+
+\subsection{Rethink BH Authentication}
+\begin{enumerate}
+    \item The service authenticates with Rethink BH using secure credentials
+    \item Implements anti-forgery token handling
+    \item Maintains session state for subsequent API calls
+    \item Handles token refresh and re-authentication
+\end{enumerate}
+
+\subsection{API Security}
+\begin{itemize}
+    \item Optional API key authentication
+    \item Support for both query parameter and header-based authentication
+    \item Rate limiting to prevent abuse
+    \item CORS configuration for web security
+\end{itemize}
+
+\section{Data Ingestion Process}
+\subsection{Data Extraction}
+\begin{enumerate}
+    \item The system connects to Rethink BH's API
+    \item Retrieves appointment data for a configurable date range (default: 6 months)
+    \item Handles pagination and rate limiting
+    \item Processes data in-memory for efficiency
+\end{enumerate}
+
+\subsection{Data Transformation}
+\begin{itemize}
+    \item Maps source fields to target database schema
+    \item Validates data integrity
+    \item Handles data type conversions
+    \item Implements error handling for malformed data
+\end{itemize}
+
+\subsection{Database Operations}
+\begin{enumerate}
+    \item Establishes secure connection to Supabase
+    \item Implements batch processing for efficient inserts
+    \item Handles primary key management
+    \item Provides detailed error reporting
+\end{enumerate}
+
+\section{System Architecture}
+\subsection{Backend Components}
+\begin{itemize}
+    \item \textbf{FastAPI Application}: Handles HTTP requests and responses
+    \item \textbf{RethinkSync Service}: Core business logic for data synchronization
+    \item \textbf{Database Connector}: Manages Supabase PostgreSQL connections
+    \item \textbf{Authentication Service}: Handles all authentication flows
+\end{itemize}
+
+\subsection{Data Flow}
+\begin{enumerate}
+    \item External trigger (Make.com or scheduled job) initiates sync
+    \item FastAPI endpoint receives the request
+    \item Authentication and authorization are verified
+    \item RethinkSync service processes the data
+    \item Data is transformed and loaded into Supabase
+    \item Status report is generated and returned
+\end{enumerate}
+
+\section{Security Considerations}
+\begin{itemize}
+    \item All credentials stored in Google Secret Manager
+    \item No sensitive data in logs
+    \item HTTPS enforced for all communications
+    \item Regular security audits and dependency updates
+    \item Principle of least privilege for database access
+\end{itemize}
+
+\section{Deployment}
+\subsection{Infrastructure}
+\begin{itemize}
+    \item Containerized using Docker
+    \item Deployed on Google Cloud Run
+    \item Auto-scaling configuration
+    \item Health checks and monitoring
+\end{itemize}
+
+\subsection{CI/CD Pipeline}
+\begin{enumerate}
+    \item Automated testing
+    \item Container image building
+    \item Deployment to staging/production
+    \item Rollback procedures
+\end{enumerate}
+
+\section{Monitoring and Maintenance}
+\begin{itemize}
+    \item Cloud Logging integration
+    \item Performance metrics collection
+    \item Alerting for critical issues
+    \item Regular backup procedures
+\end{itemize}
+
+\section{Appendix}
+\subsection{Environment Variables}
+\begin{lstlisting}[language=bash]
+# Required
+RTHINK_USER=your-email@example.com
+RTHINK_PASS=your-password
+SUPABASE_DB_URL=postgresql://user:pass@host:port/db
+
+# Optional
+API_AUTH_KEY=your-secret-key
+LOG_LEVEL=INFO
+MAX_RETRIES=3
+\end{lstlisting}
+
+\subsection{API Endpoints}
+\begin{tabular}{lll}
+\toprule
+\textbf{Endpoint} & \textbf{Method} & \textbf{Description} \\
+\midrule
+/ & GET & Service information \\
+/health & GET & Health check \\
+/ready & GET & Readiness check \\
+/run & GET/POST & Execute sync \\
+/docs & GET & API documentation \\
+\bottomrule
+\end{tabular}
+
+\end{document}
