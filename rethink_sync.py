@@ -10,7 +10,7 @@ import logging
 import requests
 import pandas as pd
 import psycopg2
-from datetime import datetime
+from datetime import datetime, timedelta
 from dateutil.relativedelta import relativedelta
 from urllib.parse import urlparse
 from typing import Dict, Any, Optional
@@ -164,18 +164,15 @@ class RethinkSync:
 
     def _get_date_range(self) -> tuple[str, str]:
         """Calculate date range: 6 months before current date to end of current month."""
-        # Get end of current month
-        end_date = datetime.now().replace(day=1, hour=0, minute=0, second=0, microsecond=0) + relativedelta(months=1, days=-1)
-        # Get date 6 months before
-        start_date = end_date - relativedelta(months=6)
+        # Get end of current month at 11:59:59 PM
+        end_date = datetime.now().replace(day=1, hour=23, minute=59, second=59, microsecond=0) + relativedelta(months=1, days=-1)
+        # Get start of month 6 months ago at 12:00:00 AM
+        start_date = end_date.replace(day=1, hour=0, minute=0, second=0, microsecond=0) - relativedelta(months=6)
 
         # Format dates using platform-agnostic string formatting
         start_str = f"{start_date.month}/{start_date.day}/{start_date.year}, {start_date.strftime('%I:%M:%S %p')}"
         end_str = f"{end_date.month}/{end_date.day}/{end_date.year}, {end_date.strftime('%I:%M:%S %p')}"
 
-
-        # start_str = "6/1/2025, 12:00:00 AM"
-        # end_str = "6/30/2025, 12:00:00 AM"
         logger.info(f"Using date range: {start_str} to {end_str}")
         return start_str, end_str
     def _download_excel(self) -> pd.DataFrame:
