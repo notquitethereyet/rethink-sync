@@ -178,8 +178,7 @@ class RethinkSync:
         # end_str = "6/30/2025, 12:00:00 AM"
         logger.info(f"Using date range: {start_str} to {end_str}")
         return start_str, end_str
-
-    def _download_excel(self, save_to_file: bool = True) -> pd.DataFrame:
+    def _download_excel(self) -> pd.DataFrame:
         """Download Excel data from Rethink BH API and return as DataFrame.
         
         Args:
