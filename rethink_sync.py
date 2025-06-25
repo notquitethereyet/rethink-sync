@@ -181,9 +181,6 @@ class RethinkSync:
     def _download_excel(self) -> pd.DataFrame:
         """Download Excel data from Rethink BH API and return as DataFrame.
         
-        Args:
-            save_to_file: If True, saves the Excel file to a downloads folder
-            
         Returns:
             pd.DataFrame: DataFrame containing the Excel data
         """
@@ -276,20 +273,6 @@ class RethinkSync:
                 logger.error(f"Response content: {response.text[:500]}")
                 response.raise_for_status()
 
-            # Create downloads directory if it doesn't exist
-            downloads_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'downloads')
-            os.makedirs(downloads_dir, exist_ok=True)
-            
-            # Generate filename with timestamp
-            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-            excel_filename = os.path.join(downloads_dir, f'rethink_export_{timestamp}.xlsx')
-            
-            # Save the raw Excel file
-            if save_to_file:
-                with open(excel_filename, 'wb') as f:
-                    f.write(response.content)
-                logger.info(f"Saved Excel file to: {excel_filename}")
-            
             # Load Excel data into DataFrame
             excel_data = io.BytesIO(response.content)
             df = pd.read_excel(excel_data, skiprows=1)  # Skip empty first row
