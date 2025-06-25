@@ -173,11 +173,21 @@ class RethinkSync:
         start_str = f"{start_date.month}/{start_date.day}/{start_date.year}, {start_date.strftime('%I:%M:%S %p')}"
         end_str = f"{end_date.month}/{end_date.day}/{end_date.year}, {end_date.strftime('%I:%M:%S %p')}"
 
+
+        # start_str = "6/1/2025, 12:00:00 AM"
+        # end_str = "6/30/2025, 12:00:00 AM"
         logger.info(f"Using date range: {start_str} to {end_str}")
         return start_str, end_str
 
-    def _download_excel(self) -> pd.DataFrame:
-        """Download Excel data from Rethink BH API and return as DataFrame."""
+    def _download_excel(self, save_to_file: bool = True) -> pd.DataFrame:
+        """Download Excel data from Rethink BH API and return as DataFrame.
+        
+        Args:
+            save_to_file: If True, saves the Excel file to a downloads folder
+            
+        Returns:
+            pd.DataFrame: DataFrame containing the Excel data
+        """
         logger.info("Downloading Excel data from Rethink BH")
         
         start_date, end_date = self._get_date_range()
@@ -190,6 +200,8 @@ class RethinkSync:
             "memberIds": [],
             "clientIds": [],
             "staffIds": [],
+            "skip": 100,
+            "pageSize": 100,
             "sameLocationStaffIds": [],  # Required field from original
             "timeFormat": "hh:mm tt",
             "dateFormat": "MM/dd/yyyy",
@@ -229,14 +241,14 @@ class RethinkSync:
                 "missingClockedOut": None,
                 "renderingProviders": [],
                 "service": [],
-                "serviceLineId": 6476,
+                "serviceLineId": None,
                 "showEVV": False,
                 "memberIds": [],
                 "clientIds": [],
                 "staffIds": [],
                 "validations": [],
                 "clientsOptions": [],
-                "includeAssignedOnly": False
+                # "includeAssignedOnly": False
             },
             "schedulerPermissionLevelTypeId": 2
         }
@@ -265,7 +277,21 @@ class RethinkSync:
                 logger.error(f"Response content: {response.text[:500]}")
                 response.raise_for_status()
 
-            # Load Excel data directly from response content
+            # Create downloads directory if it doesn't exist
+            downloads_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'downloads')
+            os.makedirs(downloads_dir, exist_ok=True)
+            
+            # Generate filename with timestamp
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            excel_filename = os.path.join(downloads_dir, f'rethink_export_{timestamp}.xlsx')
+            
+            # Save the raw Excel file
+            if save_to_file:
+                with open(excel_filename, 'wb') as f:
+                    f.write(response.content)
+                logger.info(f"Saved Excel file to: {excel_filename}")
+            
+            # Load Excel data into DataFrame
             excel_data = io.BytesIO(response.content)
             df = pd.read_excel(excel_data, skiprows=1)  # Skip empty first row
 
