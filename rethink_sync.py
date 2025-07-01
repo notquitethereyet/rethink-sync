@@ -163,11 +163,11 @@ class RethinkSync:
             raise RethinkSyncError(f"Authentication failed: {str(e)}")
 
     def _get_date_range(self) -> tuple[str, str]:
-        """Calculate date range: 6 months before current date to end of current month."""
+        """Calculate date range: current month from first to last day."""
+        # Get start of current month at 12:00:00 AM
+        start_date = datetime.now().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
         # Get end of current month at 11:59:59 PM
-        end_date = datetime.now().replace(day=1, hour=23, minute=59, second=59, microsecond=0) + relativedelta(months=1, days=-1)
-        # Get start of month 6 months ago at 12:00:00 AM
-        start_date = end_date.replace(day=1, hour=0, minute=0, second=0, microsecond=0) - relativedelta(months=6)
+        end_date = start_date + relativedelta(months=1, days=-1, hours=23, minutes=59, seconds=59)
 
         # Format dates using platform-agnostic string formatting
         start_str = f"{start_date.month}/{start_date.day}/{start_date.year}, {start_date.strftime('%I:%M:%S %p')}"
