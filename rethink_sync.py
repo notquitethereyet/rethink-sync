@@ -429,7 +429,7 @@ class RethinkSync:
 
         return success_count, error_count
 
-    def run_sync(self, from_date: Optional[str] = None, to_date: Optional[str] = None, table_name: str = 'rethinkDump') -> Dict[str, Any]:
+    def run_sync(self, from_date: Optional[str] = None, to_date: Optional[str] = None, table_name: str = 'rethinkdump') -> Dict[str, Any]:
         """Execute the complete sync process.
         
         Args:

@@ -308,7 +308,7 @@ from pydantic import BaseModel
 class SyncRequest(BaseModel):
     from_date: Optional[str] = None
     to_date: Optional[str] = None
-    table_name: Optional[str] = 'rethinkDump'
+    table_name: Optional[str] = 'rethinkdump'
     auth_key: Optional[str] = None
 
 @app.post("/run")
@@ -328,7 +328,7 @@ async def run_sync_post(request: Request) -> Dict[str, Any]:
         body = await request.json()
         from_date = body.get('from_date')
         to_date = body.get('to_date')
-        table_name = body.get('table_name', 'rethinkDump')
+        table_name = body.get('table_name', 'rethinkdump')
         
         # If auth_key is in the body, add it to the query params for the GET handler
         if 'auth_key' in body:
@@ -339,7 +339,7 @@ async def run_sync_post(request: Request) -> Dict[str, Any]:
         logger.warning(f"Error parsing request body: {e}")
         from_date = None
         to_date = None
-        table_name = 'rethinkDump'
+        table_name = 'rethinkdump'
         
     return await run_sync(
         request,
