@@ -224,16 +224,26 @@ async def readiness_check():
     return {"status": "ready", "timestamp": datetime.now().isoformat()}
 
 @app.get("/run")
-async def run_sync(request: Request) -> Dict[str, Any]:
+async def run_sync(
+    request: Request,
+    from_date: Optional[str] = None,
+    to_date: Optional[str] = None,
+    table_name: str = 'rethinkDump'
+) -> Dict[str, Any]:
     """
     Execute the complete Rethink BH to Supabase sync process.
     
     This endpoint:
     1. Authenticates with Rethink BH
-    2. Downloads the latest appointment data (6 months back to end of current month)
-    3. Truncates and resets the Supabase rethinkDump table
+    2. Downloads appointment data for the specified date range (or current month if not specified)
+    3. Truncates and resets the specified Supabase table
     4. Inserts all appointment data
     5. Returns a status report
+    
+    Query Parameters:
+    - from_date: Start date in YYYY-MM-DD format (optional, defaults to start of current month)
+    - to_date: End date in YYYY-MM-DD format (optional, defaults to end of current month)
+    - table_name: Name of the table to insert data into (optional, defaults to 'rethinkDump')
     
     Optional Authorization:
     - Query parameter: ?auth_key=YOUR_KEY
@@ -257,8 +267,12 @@ async def run_sync(request: Request) -> Dict[str, Any]:
         # Initialize sync service
         sync_service = RethinkSync()
         
-        # Execute sync
-        result = sync_service.run_sync()
+        # Execute sync with parameters
+        result = sync_service.run_sync(
+            from_date=from_date,
+            to_date=to_date,
+            table_name=table_name
+        )
         
         # Add timing information
         end_time = datetime.now()
@@ -289,13 +303,50 @@ async def run_sync(request: Request) -> Dict[str, Any]:
         logger.error(traceback.format_exc())
         raise e
 
+from pydantic import BaseModel
+
+class SyncRequest(BaseModel):
+    from_date: Optional[str] = None
+    to_date: Optional[str] = None
+    table_name: Optional[str] = 'rethinkDump'
+    auth_key: Optional[str] = None
+
 @app.post("/run")
 async def run_sync_post(request: Request) -> Dict[str, Any]:
     """
     POST version of the sync endpoint for webhook compatibility.
-    Accepts the same parameters as the GET version.
+    
+    Accepts JSON body with optional parameters:
+    - from_date: Start date in YYYY-MM-DD format
+    - to_date: End date in YYYY-MM-DD format
+    - auth_key: Optional API key for authentication
+    
+    Returns the same response as the GET endpoint.
     """
-    return await run_sync(request)
+    try:
+        # Parse JSON body if present
+        body = await request.json()
+        from_date = body.get('from_date')
+        to_date = body.get('to_date')
+        table_name = body.get('table_name', 'rethinkDump')
+        
+        # If auth_key is in the body, add it to the query params for the GET handler
+        if 'auth_key' in body:
+            request.scope['query_string'] = f"auth_key={body['auth_key']}"
+            
+    except Exception as e:
+        # If no JSON body or invalid JSON, use defaults
+        logger.warning(f"Error parsing request body: {e}")
+        from_date = None
+        to_date = None
+        table_name = 'rethinkDump'
+        
+    return await run_sync(
+        request,
+        from_date=from_date,
+        to_date=to_date,
+        table_name=table_name
+    )
 
 # Cloud Run requires the app to listen on the PORT environment variable
 if __name__ == "__main__":

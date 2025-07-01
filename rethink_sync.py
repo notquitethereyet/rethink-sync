@@ -162,12 +162,43 @@ class RethinkSync:
             logger.error("Authentication failed")
             raise RethinkSyncError(f"Authentication failed: {str(e)}")
 
+    def _parse_date(self, date_str: Optional[str]) -> Optional[datetime]:
+        """Parse a date string in YYYY-MM-DD format to datetime."""
+        if not date_str:
+            return None
+        try:
+            return datetime.strptime(date_str, '%Y-%m-%d')
+        except ValueError as e:
+            logger.warning(f"Invalid date format: {date_str}, expected YYYY-MM-DD. Error: {e}")
+            return None
+            
     def _get_date_range(self) -> tuple[str, str]:
-        """Calculate date range: current month from first to last day."""
-        # Get start of current month at 12:00:00 AM
-        start_date = datetime.now().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-        # Get end of current month at 11:59:59 PM
-        end_date = start_date + relativedelta(months=1, days=-1, hours=23, minutes=59, seconds=59)
+        """
+        Calculate date range based on provided dates or default to current month.
+        
+        Returns:
+            Tuple of (start_date_str, end_date_str) in MM/DD/YYYY, HH:MM:SS AM/PM format
+        """
+        # Parse provided dates if any
+        start_date = self._parse_date(getattr(self, 'from_date', None))
+        end_date = self._parse_date(getattr(self, 'to_date', None))
+        
+        # If only one date is provided, use it for both start and end
+        if start_date and not end_date:
+            end_date = start_date.replace(hour=23, minute=59, second=59, microsecond=0)
+        elif end_date and not start_date:
+            start_date = end_date.replace(hour=0, minute=0, second=0, microsecond=0)
+        
+        # If no dates provided or parsing failed, use current month
+        if not start_date or not end_date:
+            # Get start of current month at 12:00:00 AM
+            start_date = datetime.now().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+            # Get end of current month at 11:59:59 PM
+            end_date = start_date + relativedelta(months=1, days=-1, hours=23, minutes=59, seconds=59)
+        else:
+            # Ensure times are set correctly for the provided dates
+            start_date = start_date.replace(hour=0, minute=0, second=0, microsecond=0)
+            end_date = end_date.replace(hour=23, minute=59, second=59, microsecond=0)
 
         # Format dates using platform-agnostic string formatting
         start_str = f"{start_date.month}/{start_date.day}/{start_date.year}, {start_date.strftime('%I:%M:%S %p')}"
@@ -299,12 +330,13 @@ class RethinkSync:
             raise RethinkSyncError(f"Database connection failed: {str(e)}")
 
     def _truncate_table(self, conn) -> None:
-        """Truncate the rethinkDump table and reset ID sequence."""
+        """Truncate the specified table and reset ID sequence."""
         try:
             with conn.cursor() as cur:
-                cur.execute("TRUNCATE TABLE rethinkDump RESTART IDENTITY;")
+                # Truncate the table and reset the sequence
+                cur.execute(f'TRUNCATE TABLE "{self.table_name}" RESTART IDENTITY CASCADE')
                 conn.commit()
-            logger.info("Table truncated and ID sequence reset")
+                logger.info(f"Table '{self.table_name}' truncated and ID sequence reset")
         except Exception as e:
             logger.error("Table truncation failed")
             raise RethinkSyncError(f"Table truncation failed: {str(e)}")
@@ -370,18 +402,19 @@ class RethinkSync:
                 for i in range(0, len(all_values), batch_size):
                     batch = all_values[i:i+batch_size]
 
-                    # Construct batch insert query
+                    # Construct batch insert query with lowercase column names
                     args_str = ','.join(cur.mogrify("(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)", x).decode('utf-8') for x in batch)
-                    cur.execute("""
-                        INSERT INTO rethinkDump (
-                            appointmentType, appointmentTag, serviceLine, service,
-                            appointmentLocation, duration, day, date, time,
-                            scheduledDate, modifiedDate, client, staff, status,
-                            sessionNote, staffVerification, staffVerificationAddress,
-                            guardianVerification, parentVerificationAddress,
-                            paycodeName, paycode, notes, appointmentID,
-                            validation, placeOfService
-                        ) VALUES """ + args_str)
+                    query = f"""
+                        INSERT INTO "{self.table_name}" (
+                            "appointmenttype", "appointmenttag", "serviceline", "service",
+                            "appointmentlocation", "duration", "day", "date", "time",
+                            "scheduleddate", "modifieddate", "client", "staff", "status",
+                            "sessionnote", "staffverification", "staffverificationaddress",
+                            "guardianverification", "parentverificationaddress",
+                            "paycodename", "paycode", "notes", "appointmentid",
+                            "validation", "placeofservice"
+                        ) VALUES """ + args_str
+                    cur.execute(query)
 
                     success_count += len(batch)
                     logger.info(f"Inserted batch {i//batch_size + 1}, rows {i+1}-{i+len(batch)}")
@@ -396,10 +429,21 @@ class RethinkSync:
 
         return success_count, error_count
 
-    def run_sync(self) -> Dict[str, Any]:
-        """Execute the complete sync process."""
-        logger.info("Starting Rethink BH to Supabase sync")
-
+    def run_sync(self, from_date: Optional[str] = None, to_date: Optional[str] = None, table_name: str = 'rethinkDump') -> Dict[str, Any]:
+        """Execute the complete sync process.
+        
+        Args:
+            from_date: Optional start date in YYYY-MM-DD format
+            to_date: Optional end date in YYYY-MM-DD format
+            table_name: Name of the table to insert data into (default: 'rethinkDump')
+            
+        Returns:
+            Dictionary containing sync results and statistics
+        """
+        self.from_date = from_date
+        self.to_date = to_date
+        self.table_name = table_name
+        
         try:
             # Get credentials
             email, password, db_url = self._get_credentials()
@@ -423,7 +467,9 @@ class RethinkSync:
                 logger.info("Sync completed successfully")
                 return {
                     "status": "success",
-                    "rows_inserted": success_count,
+                    "table": self.table_name,
+                    "rows_processed": len(df),
+                    "rows_inserted": len(df) - error_count,
                     "errors": error_count,
                     "total_rows": len(df)
                 }
