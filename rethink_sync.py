@@ -206,6 +206,7 @@ class RethinkSync:
 
         logger.info(f"Using date range: {start_str} to {end_str}")
         return start_str, end_str
+
     def _download_excel(self) -> pd.DataFrame:
         """Download Excel data from Rethink BH API and return as DataFrame.
         
@@ -333,12 +334,43 @@ class RethinkSync:
         """Truncate the specified table and reset ID sequence."""
         try:
             with conn.cursor() as cur:
-                # Truncate the table and reset the sequence
-                cur.execute(f'TRUNCATE TABLE "{self.table_name}" RESTART IDENTITY CASCADE')
+                # First check if the table exists (case-insensitive)
+                cur.execute("""
+                    SELECT EXISTS (
+                        SELECT FROM information_schema.tables 
+                        WHERE table_schema = 'public' 
+                        AND lower(table_name) = lower(%s)
+                    )
+                """, (self.table_name,))
+                table_exists = cur.fetchone()[0]
+                
+                if not table_exists:
+                    logger.error(f"Table '{self.table_name}' does not exist in the database")
+                    raise RethinkSyncError(f"Table '{self.table_name}' does not exist in the database. Please create the table first or check the table name.")
+
+                # Truncate the table
+                cur.execute(f'TRUNCATE TABLE "{self.table_name}" CASCADE')
+                logger.info(f"Table '{self.table_name}' truncated")
+
+                # Try resetting the serial sequence (only if one exists)
+                cur.execute(f"""
+                    SELECT pg_get_serial_sequence('"{self.table_name}"', 'id')
+                """)
+                result = cur.fetchone()
+                seq_name = result[0] if result else None
+
+                if seq_name:
+                    cur.execute(f"SELECT setval('{seq_name}', 1, false)")
+                    logger.info(f"Reset sequence {seq_name} for table '{self.table_name}'")
+                else:
+                    logger.warning(f"No serial sequence found for 'id' in table '{self.table_name}'")
+
                 conn.commit()
-                logger.info(f"Table '{self.table_name}' truncated and ID sequence reset")
+        except psycopg2.errors.UndefinedTable as e:
+            logger.error(f"Table '{self.table_name}' does not exist")
+            raise RethinkSyncError(f"Table '{self.table_name}' does not exist in the database. Please create the table first or check the table name.")
         except Exception as e:
-            logger.error("Table truncation failed")
+            logger.error(f"Table truncation failed: {str(e)}")
             raise RethinkSyncError(f"Table truncation failed: {str(e)}")
 
     def _map_excel_to_db_columns(self, df: pd.DataFrame) -> Dict[str, str]:
@@ -429,17 +461,33 @@ class RethinkSync:
 
         return success_count, error_count
 
-    def run_sync(self, from_date: Optional[str] = None, to_date: Optional[str] = None, table_name: str = 'rethinkdump') -> Dict[str, Any]:
+    def run_sync(self, from_date: str, to_date: str, table_name: str) -> Dict[str, Any]:
         """Execute the complete sync process.
         
         Args:
-            from_date: Optional start date in YYYY-MM-DD format
-            to_date: Optional end date in YYYY-MM-DD format
-            table_name: Name of the table to insert data into (default: 'rethinkDump')
-            
+            from_date: Start date in YYYY-MM-DD format (required)
+            to_date: End date in YYYY-MM-DD format (required)
+            table_name: Name of the table to insert data into (required)
+        
         Returns:
             Dictionary containing sync results and statistics
+        
+        Raises:
+            RethinkSyncError: If any required parameters are missing or invalid
         """
+        # Validate required parameters
+        if from_date is None:
+            logger.error("Missing required parameter: from_date")
+            raise RethinkSyncError("Missing required parameter: from_date")
+            
+        if to_date is None:
+            logger.error("Missing required parameter: to_date")
+            raise RethinkSyncError("Missing required parameter: to_date")
+            
+        if table_name is None or table_name.strip() == '':
+            logger.error("Missing required parameter: table_name")
+            raise RethinkSyncError("Missing required parameter: table_name")
+        
         self.from_date = from_date
         self.to_date = to_date
         self.table_name = table_name

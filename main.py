@@ -125,7 +125,7 @@ async def rethink_sync_exception_handler(request: Request, exc: RethinkSyncError
         status_code=500,
         content={
             "status": "error",
-            "message": "Sync operation failed",
+            "message": str(exc),
             "timestamp": datetime.now().isoformat()
         }
     )
@@ -227,24 +227,24 @@ async def readiness_check():
 @app.get("/run")
 async def run_sync(
     request: Request,
-    from_date: Optional[str] = None,
-    to_date: Optional[str] = None,
-    table_name: str = 'rethinkDump'
+    from_date: str,
+    to_date: str,
+    table_name: str
 ) -> Dict[str, Any]:
     """
     Execute the complete Rethink BH to Supabase sync process.
     
     This endpoint:
     1. Authenticates with Rethink BH
-    2. Downloads appointment data for the specified date range (or current month if not specified)
+    2. Downloads appointment data for the specified date range
     3. Truncates and resets the specified Supabase table
     4. Inserts all appointment data
     5. Returns a status report
     
     Query Parameters:
-    - from_date: Start date in YYYY-MM-DD format (optional, defaults to start of current month)
-    - to_date: End date in YYYY-MM-DD format (optional, defaults to end of current month)
-    - table_name: Name of the table to insert data into (optional, defaults to 'rethinkDump')
+    - from_date: Start date in YYYY-MM-DD format (required)
+    - to_date: End date in YYYY-MM-DD format (required)
+    - table_name: Name of the table to insert data into (required)
     
     Optional Authorization:
     - Query parameter: ?auth_key=YOUR_KEY
