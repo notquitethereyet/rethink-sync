@@ -5,6 +5,7 @@ Designed for Google Cloud Run deployment with webhook support.
 """
 
 import os
+import json
 import logging
 import traceback
 from datetime import datetime
@@ -316,30 +317,82 @@ async def run_sync_post(request: Request) -> Dict[str, Any]:
     """
     POST version of the sync endpoint for webhook compatibility.
     
-    Accepts JSON body with optional parameters:
+    Accepts JSON body with required parameters:
     - from_date: Start date in YYYY-MM-DD format
     - to_date: End date in YYYY-MM-DD format
+    - table_name: Name of the table to insert data into
     - auth_key: Optional API key for authentication
     
-    Returns the same response as the GET endpoint.
+    Returns the same response as the GET endpoint or error response for malformed requests.
     """
     try:
-        # Parse JSON body if present
+        # Parse JSON body
         body = await request.json()
-        from_date = body.get('from_date')
-        to_date = body.get('to_date')
-        table_name = body.get('table_name', 'rethinkdump')
+        
+        # Check for required fields
+        if 'from_date' not in body:
+            logger.error("Malformed request: Missing required field 'from_date'")
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "status": "error",
+                    "message": "Missing required field: from_date",
+                    "timestamp": datetime.now().isoformat()
+                }
+            )
+            
+        if 'to_date' not in body:
+            logger.error("Malformed request: Missing required field 'to_date'")
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "status": "error",
+                    "message": "Missing required field: to_date",
+                    "timestamp": datetime.now().isoformat()
+                }
+            )
+            
+        if 'table_name' not in body:
+            logger.error("Malformed request: Missing required field 'table_name'")
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "status": "error",
+                    "message": "Missing required field: table_name",
+                    "timestamp": datetime.now().isoformat()
+                }
+            )
+        
+        from_date = body['from_date']
+        to_date = body['to_date']
+        table_name = body['table_name']
         
         # If auth_key is in the body, add it to the query params for the GET handler
         if 'auth_key' in body:
             request.scope['query_string'] = f"auth_key={body['auth_key']}"
             
+    except json.JSONDecodeError as e:
+        # Invalid JSON format
+        logger.error(f"Malformed request: Invalid JSON format - {e}")
+        return JSONResponse(
+            status_code=400,
+            content={
+                "status": "error",
+                "message": "Invalid JSON format in request body",
+                "timestamp": datetime.now().isoformat()
+            }
+        )
     except Exception as e:
-        # If no JSON body or invalid JSON, use defaults
-        logger.warning(f"Error parsing request body: {e}")
-        from_date = None
-        to_date = None
-        table_name = 'rethinkdump'
+        # Other unexpected errors
+        logger.error(f"Error processing request body: {e}")
+        return JSONResponse(
+            status_code=500,
+            content={
+                "status": "error",
+                "message": f"Error processing request: {str(e)}",
+                "timestamp": datetime.now().isoformat()
+            }
+        )
         
     return await run_sync(
         request,
