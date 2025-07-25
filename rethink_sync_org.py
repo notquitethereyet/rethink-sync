@@ -1,19 +1,20 @@
 #!/usr/bin/env python3
 """
-Rethink BH to Supabase appointment sync module.
-Handles downloading appointment data and syncing to Supabase database.
+Unified Rethink BH to Supabase sync module.
+Combines download and ingestion logic for Cloud Run deployment.
 """
 
 import os
 import io
 import logging
+import requests
 import pandas as pd
 import psycopg2
-from datetime import datetime
+from datetime import datetime, timedelta
 from dateutil.relativedelta import relativedelta
 from urllib.parse import urlparse
 from typing import Dict, Any, Optional
-from auth import RethinkAuth, RethinkAuthError
+from google.cloud import secretmanager
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -23,21 +24,25 @@ class RethinkSyncError(Exception):
     pass
 
 class RethinkSync:
-    """Handles the complete Rethink BH to Supabase appointment sync process."""
-
-    def __init__(self, auth: RethinkAuth = None):
-        """
-        Initialize RethinkSync.
-
-        Args:
-            auth: Optional RethinkAuth instance. If not provided, creates a new one.
-        """
-        self.auth = auth or RethinkAuth()
-
+    """Handles the complete Rethink BH to Supabase sync process."""
+    
+    def __init__(self):
+        self.session = requests.Session()
+        self.base_url = "https://webapp.rethinkbehavioralhealth.com"
+        self.headers = {
+            "Content-Type": "application/json;charset=utf-8",
+            "Accept": "application/json, text/plain, */*",
+            "X-Application-Key": "74569e11-18b4-4122-a58d-a4b830aa12c4",
+            "X-Origin": "Angular",
+            "User-Agent": "Mozilla/5.0 (X11; Linux x86_64; rv:139.0) Gecko/139.0",
+            "Origin": self.base_url,
+            "Referer": f"{self.base_url}/Healthcare#/Login",
+        }
+        
         # Column mapping for Excel to database
         self.column_mapping = {
             'Appointment Type': 'appointmentType',
-            'Appointment Tag': 'appointmentTag',
+            'Appointment Tag': 'appointmentTag', 
             'Service Line': 'serviceLine',
             'Service': 'service',
             'Appointment Location': 'appointmentLocation',
@@ -63,23 +68,99 @@ class RethinkSync:
             'Place of Service': 'placeOfService'
         }
 
-    def _get_database_url(self) -> str:
-        """Get database URL from environment or Secret Manager."""
+    def _get_secret(self, secret_name: str, project_id: Optional[str] = None) -> str:
+        """Retrieve secret from Google Cloud Secret Manager."""
+        try:
+            if project_id is None:
+                project_id = os.getenv('GOOGLE_CLOUD_PROJECT')
+                if not project_id:
+                    raise RethinkSyncError("GOOGLE_CLOUD_PROJECT environment variable not set")
+            
+            client = secretmanager.SecretManagerServiceClient()
+            name = f"projects/{project_id}/secrets/{secret_name}/versions/latest"
+            response = client.access_secret_version(request={"name": name})
+            return response.payload.data.decode("UTF-8")
+        except Exception as e:
+            logger.error(f"Failed to retrieve secret {secret_name}")
+            raise RethinkSyncError(f"Secret retrieval failed: {str(e)}")
+
+    def _get_credentials(self) -> tuple[str, str, str]:
+        """Get credentials from environment or Secret Manager."""
+        # Try environment variables first (for local development)
+        email = os.getenv("RTHINK_USER")
+        password = os.getenv("RTHINK_PASS")
         db_url = os.getenv("SUPABASE_DB_URL")
 
-        if db_url:
-            logger.info("Using database URL from environment variables")
-            return db_url
+        # If all environment variables are found, use them
+        if all([email, password, db_url]):
+            logger.info("Using credentials from environment variables")
+            return email, password, db_url
 
         # If not found, try Secret Manager
         try:
-            db_url = self.auth._get_secret("SUPABASE_DB_URL")
-            if db_url:
-                return db_url
-        except RethinkAuthError as e:
-            raise RethinkSyncError(f"Failed to get database URL: {str(e)}")
+            if not email:
+                email = self._get_secret("RTHINK_USER")
+            if not password:
+                password = self._get_secret("RTHINK_PASS")
+            if not db_url:
+                db_url = self._get_secret("SUPABASE_DB_URL")
+        except RethinkSyncError as e:
+            # If Secret Manager fails and we don't have env vars, raise error
+            if not all([email, password, db_url]):
+                raise RethinkSyncError("Missing required credentials and Secret Manager unavailable")
 
-        raise RethinkSyncError("Missing database URL")
+        if not all([email, password, db_url]):
+            raise RethinkSyncError("Missing required credentials")
+
+        return email, password, db_url
+
+    def _fetch_token(self) -> Optional[str]:
+        """Extract anti-forgery token from session cookies."""
+        for cookie in self.session.cookies:
+            if any(k in cookie.name.upper() for k in ("XSRF", "ANTIFORGERY", "REQUESTVERIFICATIONTOKEN")):
+                return cookie.value
+        return None
+
+    def _with_token(self, headers: dict) -> dict:
+        """Add anti-forgery token to headers."""
+        token = self._fetch_token()
+        if not token:
+            raise RethinkSyncError("No anti-forgery token found in cookies")
+        return {**headers, "X-XSRF-TOKEN": token}
+
+    def _authenticate(self, email: str, password: str) -> None:
+        """Authenticate with Rethink BH."""
+        logger.info("Starting authentication with Rethink BH")
+        
+        try:
+            # Initial request to get session
+            self.session.get(f"{self.base_url}/HealthCare", headers=self.headers).raise_for_status()
+            
+            # Verify email
+            self.session.post(
+                f"{self.base_url}/HealthCare/SingleSignOn/GetAuthenticationDetail",
+                json={"User": email}, 
+                headers=self._with_token(self.headers)
+            ).raise_for_status()
+            
+            # Login
+            self.session.post(
+                f"{self.base_url}/HealthCare/User/Login",
+                json={"User": email, "Password": password, "setPermissions": True},
+                headers=self._with_token(self.headers)
+            ).raise_for_status()
+            
+            # Final authentication step
+            self.session.get(
+                f"{self.base_url}/core/scheduler/appointments",
+                headers=self._with_token(self.headers)
+            ).raise_for_status()
+            
+            logger.info("Authentication successful")
+            
+        except requests.RequestException as e:
+            logger.error("Authentication failed")
+            raise RethinkSyncError(f"Authentication failed: {str(e)}")
 
     def _parse_date(self, date_str: Optional[str]) -> Optional[datetime]:
         """Parse a date string in YYYY-MM-DD format to datetime."""
@@ -127,11 +208,15 @@ class RethinkSync:
         return start_str, end_str
 
     def _download_excel(self) -> pd.DataFrame:
-        """Download Excel data from Rethink BH API."""
-        logger.info("Downloading appointment data")
-
+        """Download Excel data from Rethink BH API and return as DataFrame.
+        
+        Returns:
+            pd.DataFrame: DataFrame containing the Excel data
+        """
+        logger.info("Downloading Excel data from Rethink BH")
+        
         start_date, end_date = self._get_date_range()
-
+        
         payload = {
             "startDate": start_date,
             "endDate": end_date,
@@ -142,11 +227,15 @@ class RethinkSync:
             "staffIds": [],
             "skip": 100,
             "pageSize": 100,
-            "sameLocationStaffIds": [],
+            "sameLocationStaffIds": [],  # Required field from original
             "timeFormat": "hh:mm tt",
             "dateFormat": "MM/dd/yyyy",
             "includeAssignedOnly": False,
-            "sorting": {"field": "date", "asc": False, "type": 1},
+            "sorting": {
+                "field": "date",
+                "asc": False,
+                "type": 1
+            },
             "filterOptions": {
                 "startDate": start_date,
                 "endDate": end_date,
@@ -183,30 +272,46 @@ class RethinkSync:
                 "clientIds": [],
                 "staffIds": [],
                 "validations": [],
-                "clientsOptions": []
+                "clientsOptions": [],
+                # "includeAssignedOnly": False
             },
             "schedulerPermissionLevelTypeId": 2
         }
-
+        
         try:
-            response = self.auth.make_request(
-                "POST",
-                f"{self.auth.base_url}/core/api/scheduling/scheduling/GetAppointmentsListPrintAsync",
-                request_type="scheduler",
+            # Refresh session by visiting scheduler page again
+            logger.info("Refreshing session before Excel download")
+            self.session.get(
+                f"{self.base_url}/core/scheduler/appointments",
+                headers=self._with_token(self.headers)
+            ).raise_for_status()
+
+            # Get a fresh token right before the request
+            fresh_headers = self._with_token(self.headers)
+            logger.info("Making Excel download request with fresh token")
+
+            response = self.session.post(
+                f"{self.base_url}/core/api/scheduling/scheduling/GetAppointmentsListPrintAsync",
                 json=payload,
-                timeout=120
+                headers=fresh_headers,
+                timeout=120,
             )
+
+            if response.status_code != 200:
+                logger.error(f"Excel download failed with status {response.status_code}")
+                logger.error(f"Response content: {response.text[:500]}")
+                response.raise_for_status()
 
             # Load Excel data into DataFrame
             excel_data = io.BytesIO(response.content)
-            df = pd.read_excel(excel_data, skiprows=1)
+            df = pd.read_excel(excel_data, skiprows=1)  # Skip empty first row
 
-            logger.info(f"Downloaded {len(df)} appointment records")
+            logger.info(f"Downloaded {len(df)} rows from Rethink BH")
             return df
 
         except Exception as e:
-            logger.error(f"Excel download failed: {e}")
-            raise RethinkSyncError(f"Excel download failed: {e}")
+            logger.error("Excel download failed")
+            raise RethinkSyncError(f"Excel download failed: {str(e)}")
 
     def _connect_database(self, db_url: str):
         """Connect to Supabase PostgreSQL database."""
@@ -388,12 +493,11 @@ class RethinkSync:
         self.table_name = table_name
         
         try:
-            # Get database URL
-            db_url = self._get_database_url()
+            # Get credentials
+            email, password, db_url = self._get_credentials()
 
-            # Authenticate with Rethink BH (auth module handles credentials)
-            if not self.auth.is_authenticated:
-                self.auth.authenticate()
+            # Authenticate with Rethink BH
+            self._authenticate(email, password)
 
             # Download Excel data
             df = self._download_excel()
@@ -406,9 +510,9 @@ class RethinkSync:
                 self._truncate_table(conn)
 
                 # Insert data
-                _, error_count = self._insert_data(conn, df)
+                success_count, error_count = self._insert_data(conn, df)
 
-                logger.info(f"Sync completed: {len(df)} records, {error_count} errors")
+                logger.info("Sync completed successfully")
                 return {
                     "status": "success",
                     "table": self.table_name,

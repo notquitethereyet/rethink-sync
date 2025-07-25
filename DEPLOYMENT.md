@@ -195,7 +195,7 @@ docker run -p 8080:8080 \
 | `/` | GET | Service information |
 | `/health` | GET | Comprehensive health check |
 | `/ready` | GET | Readiness check |
-| `/run` | GET/POST | Execute sync |
+| `/run` | POST | Execute sync |
 | `/docs` | GET | API documentation |
 | `/redoc` | GET | Alternative API docs |
 
