@@ -4,46 +4,39 @@ FastAPI application for Rethink BH to Supabase sync.
 Designed for Google Cloud Run deployment with webhook support.
 """
 
-import os
 import json
-import logging
 import traceback
 from datetime import datetime
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any
 import time
-from dotenv import load_dotenv
-from rethink_sync import RethinkSync, RethinkSyncError
-from auth import RethinkAuth, RethinkAuthError
-from overterm_dashboard import OverTermDashboard, OverTermDashboardError
 
-from fastapi import FastAPI, HTTPException, Request, Depends
+from config import config
+from logger import get_logger, get_request_logger, get_auth_logger
+from models import (
+    SyncRequest, DashboardRequest, OverTermSyncRequest,
+    SyncResponse, DashboardResponse, HealthResponse, ErrorResponse, ServiceInfo
+)
+from rethink_sync import RethinkSync, RethinkSyncError
+from overterm_dashboard import OverTermDashboard, OverTermDashboardError
+from auth import RethinkAuthError
+
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.middleware.trustedhost import TrustedHostMiddleware
-from fastapi.middleware.httpsredirect import HTTPSRedirectMiddleware
-from starlette.requests import Request
-from starlette.responses import Response
 from starlette.status import HTTP_429_TOO_MANY_REQUESTS
+from pydantic import ValidationError
 
-# Load environment variables from .env file
-load_dotenv()
-
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.StreamHandler()
-    ]
-)
-logger = logging.getLogger(__name__)
+# Initialize logging
+logger = get_logger(__name__)
+request_logger = get_request_logger(logger)
+auth_logger = get_auth_logger(logger)
 
 # Initialize FastAPI app
 app = FastAPI(
-    title="Rethink BH Sync API",
-    description="Automated sync service for Rethink Behavioral Health to Supabase",
-    version="1.0.0",
+    title=config.APP_NAME,
+    description=config.APP_DESCRIPTION,
+    version=config.APP_VERSION,
     docs_url="/docs",
     redoc_url="/redoc"
 )
@@ -84,7 +77,7 @@ def rate_limit(request: Request):
     return True
 
 # Optional simple authorization
-AUTH_KEY = os.getenv("API_AUTH_KEY")
+AUTH_KEY = config.API_AUTH_KEY
 
 def check_auth(request: Request) -> bool:
     """Simple authorization check if AUTH_KEY is set."""
@@ -176,8 +169,8 @@ async def general_exception_handler(request: Request, exc: Exception):
 async def root():
     """Root endpoint with basic service information."""
     return {
-        "service": "Rethink BH Sync API",
-        "version": "1.0.0",
+        "service": config.APP_NAME,
+        "version": config.APP_VERSION,
         "status": "running",
         "endpoints": {
             "sync": "POST /run",
@@ -202,8 +195,8 @@ async def health_check():
     health_status = {
         "status": "healthy",
         "timestamp": datetime.now().isoformat(),
-        "service": "rethink-sync",
-        "version": "1.0.0"
+        "service": config.APP_NAME,
+        "version": config.APP_VERSION
     }
 
     # Check environment configuration
@@ -227,9 +220,8 @@ async def health_check():
 
     # Check critical imports
     try:
-        import pandas
-        import psycopg2
-        import requests
+        for dependency in ["pandas", "psycopg2", "requests", "fastapi"]:
+            __import__(dependency)
         checks["dependencies"] = "pass"
     except ImportError as e:
         checks["dependencies"] = "fail"
@@ -256,13 +248,7 @@ async def readiness_check():
 
 
 
-from pydantic import BaseModel
 
-class SyncRequest(BaseModel):
-    from_date: Optional[str] = None
-    to_date: Optional[str] = None
-    table_name: Optional[str] = 'rethinkdump'
-    auth_key: Optional[str] = None
 
 @app.post("/run")
 async def run_sync_post(request: Request) -> Dict[str, Any]:
@@ -399,11 +385,7 @@ async def run_sync_post(request: Request) -> Dict[str, Any]:
 
 
 
-class DashboardRequest(BaseModel):
-    start_date: Optional[str] = None
-    end_date: Optional[str] = None
-    client_ids: Optional[list[int]] = None  # List of client IDs
-    auth_key: Optional[str] = None
+
 
 @app.post("/overterm-dashboard")
 async def get_overterm_dashboard_post(request: Request) -> Dict[str, Any]:
@@ -468,12 +450,7 @@ async def get_overterm_dashboard_post(request: Request) -> Dict[str, Any]:
 
 
 
-class OverTermSyncRequest(BaseModel):
-    start_date: Optional[str] = None
-    end_date: Optional[str] = None
-    client_ids: Optional[List[int]] = None
-    table_name: Optional[str] = "overterm_dashboard"
-    auth_key: Optional[str] = None
+
 
 @app.post("/overterm-sync")
 async def sync_overterm_dashboard_post(request: Request) -> Dict[str, Any]:
@@ -539,8 +516,8 @@ async def sync_overterm_dashboard_post(request: Request) -> Dict[str, Any]:
 if __name__ == "__main__":
     import uvicorn
     
-    port = int(os.getenv("PORT", 8080))
-    host = os.getenv("HOST", "0.0.0.0")
+    port = config.PORT
+    host = config.HOST
     
     logger.info(f"Starting server on {host}:{port}")
     

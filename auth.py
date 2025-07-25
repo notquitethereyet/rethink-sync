@@ -5,14 +5,17 @@ Handles login, session management, and token generation.
 """
 
 import os
-import logging
 import requests
 import re
 from typing import Optional, Dict, Tuple
 from google.cloud import secretmanager
 
-# Configure structured logging
-logger = logging.getLogger(__name__)
+from config import config
+from logger import get_logger, get_auth_logger
+
+# Initialize logging
+logger = get_logger(__name__)
+auth_logger = get_auth_logger(logger)
 
 class RethinkAuthError(Exception):
     """Custom exception for Rethink authentication operations."""
@@ -23,16 +26,8 @@ class RethinkAuth:
     
     def __init__(self):
         self.session = requests.Session()
-        self.base_url = "https://webapp.rethinkbehavioralhealth.com"
-        self.headers = {
-            "Content-Type": "application/json;charset=utf-8",
-            "Accept": "application/json, text/plain, */*",
-            "X-Application-Key": "74569e11-18b4-4122-a58d-a4b830aa12c4",
-            "X-Origin": "Angular",
-            "User-Agent": "Mozilla/5.0 (X11; Linux x86_64; rv:139.0) Gecko/139.0",
-            "Origin": self.base_url,
-            "Referer": f"{self.base_url}/Healthcare#/Login",
-        }
+        self.base_url = config.RETHINK_BASE_URL
+        self.headers = config.get_rethink_headers()
         self._authenticated = False
 
     def _get_secret(self, secret_name: str, project_id: Optional[str] = None) -> str:
@@ -116,9 +111,11 @@ class RethinkAuth:
             ).raise_for_status()
 
             self._authenticated = True
+            auth_logger.log_auth_success(email)
             logger.info("Authentication successful")
 
         except requests.RequestException as e:
+            auth_logger.log_auth_failure(str(e), email)
             logger.error(f"Authentication failed: {e}")
             raise RethinkAuthError(f"Authentication failed: {e}")
 

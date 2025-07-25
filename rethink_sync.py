@@ -6,17 +6,20 @@ Handles downloading appointment data and syncing to Supabase database.
 
 import os
 import io
-import logging
 import pandas as pd
 import psycopg2
 from datetime import datetime
 from dateutil.relativedelta import relativedelta
 from urllib.parse import urlparse
 from typing import Dict, Any, Optional
+
+from config import config, db_config
+from logger import get_logger, get_sync_logger, log_performance
 from auth import RethinkAuth, RethinkAuthError
 
-# Configure logging
-logger = logging.getLogger(__name__)
+# Initialize logging
+logger = get_logger(__name__)
+sync_logger = get_sync_logger(logger)
 
 class RethinkSyncError(Exception):
     """Custom exception for Rethink sync operations."""
@@ -356,6 +359,7 @@ class RethinkSync:
 
         return success_count, error_count
 
+    @log_performance
     def run_sync(self, from_date: str, to_date: str, table_name: str) -> Dict[str, Any]:
         """Execute the complete sync process.
         
@@ -386,7 +390,14 @@ class RethinkSync:
         self.from_date = from_date
         self.to_date = to_date
         self.table_name = table_name
-        
+
+        # Start sync logging
+        sync_id = sync_logger.log_sync_start("appointment_sync", {
+            "from_date": from_date,
+            "to_date": to_date,
+            "table_name": table_name
+        })
+
         try:
             # Get database URL
             db_url = self._get_database_url()
@@ -409,6 +420,14 @@ class RethinkSync:
                 _, error_count = self._insert_data(conn, df)
 
                 logger.info(f"Sync completed: {len(df)} records, {error_count} errors")
+
+                # Log sync completion
+                sync_logger.log_sync_complete(sync_id, {
+                    "rows_processed": len(df),
+                    "rows_inserted": len(df) - error_count,
+                    "errors": error_count
+                })
+
                 return {
                     "status": "success",
                     "table": self.table_name,
@@ -422,7 +441,9 @@ class RethinkSync:
                 conn.close()
 
         except RethinkSyncError:
+            sync_logger.log_sync_error(sync_id, "RethinkSyncError occurred")
             raise
         except Exception as e:
+            sync_logger.log_sync_error(sync_id, str(e))
             logger.error(f"Unexpected error during sync: {str(e)}")
             raise RethinkSyncError(f"Sync failed: {str(e)}")

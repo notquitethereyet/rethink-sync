@@ -4,16 +4,20 @@ Over Term Dashboard module for Rethink BH API.
 Handles fetching dashboard data for clients with Over Term authorization status.
 """
 
-import logging
 import os
 import psycopg2
 from datetime import datetime
 from typing import Dict, Any, List
 from urllib.parse import urlparse
+from google.cloud import secretmanager
+
+from config import config
+from logger import get_logger, get_sync_logger, log_performance
 from auth import RethinkAuth, RethinkAuthError
 
-# Configure logging
-logger = logging.getLogger(__name__)
+# Initialize logging
+logger = get_logger(__name__)
+sync_logger = get_sync_logger(logger)
 
 class OverTermDashboardError(Exception):
     """Custom exception for Over Term dashboard operations."""
@@ -31,6 +35,7 @@ class OverTermDashboard:
         """
         self.auth = auth or RethinkAuth()
         
+    @log_performance
     def get_dashboard_data(
         self,
         start_date: str = None,
@@ -43,7 +48,7 @@ class OverTermDashboard:
         # Set defaults
         start_date = start_date or "07/01/2024"
         end_date = end_date or "07/31/2025"
-        client_ids = client_ids or [325526, 349284, 304907, 297808]
+        client_ids = client_ids or config.DEFAULT_OVERTERM_CLIENT_IDS
 
         payload = {
             "reportId": 13,
@@ -248,6 +253,7 @@ class OverTermDashboard:
 
         return success_count, error_count
 
+    @log_performance
     def sync_to_database(
         self,
         start_date: str = None,
