@@ -6,6 +6,7 @@ Handles fetching dashboard data for clients with Over Term authorization status.
 
 import os
 import psycopg2
+import re
 from datetime import datetime
 from typing import Dict, Any, List
 from urllib.parse import urlparse
@@ -25,15 +26,87 @@ class OverTermDashboardError(Exception):
 
 class OverTermDashboard:
     """Handles Over Term dashboard data fetching from Rethink BH API."""
-    
+
     def __init__(self, auth: RethinkAuth = None):
         """
         Initialize Over Term Dashboard.
-        
+
         Args:
             auth: Optional RethinkAuth instance. If not provided, creates a new one.
         """
         self.auth = auth or RethinkAuth()
+
+    def _generate_name_code(self, full_name: str) -> str:
+        """
+        Generate a 4-character name code from a full name for privacy/compression.
+
+        Format: FirstNameInitials + LastNameInitials (mixed case)
+        - Takes first 2 letters of first name + first 2 letters of last name
+        - Capitalizes first letter of each pair, lowercase for second letter
+        - Removes special characters (apostrophes, hyphens, etc.)
+        - Handles nicknames in parentheses by ignoring them
+
+        Examples:
+        - "Gayagoy, Celine" -> "CeGa"
+        - "Miramontes, Ezequiel" -> "EzMi"
+        - "Yusupov, Yoqub (Yashek)" -> "YoYu"
+        - "O'Connor, Patrick" -> "PaOc"
+        - "Smith-Jones, Mary-Ann" -> "MaSm"
+
+        Args:
+            full_name: Full name in "Last, First" or "Last, First (Nickname)" format
+
+        Returns:
+            Generated name code (4 characters in mixed case)
+        """
+        if not full_name or not isinstance(full_name, str):
+            return "UnKn"  # Default for unknown names
+
+        try:
+            # Clean the name and split by comma
+            cleaned_name = full_name.strip()
+
+            # Handle names with parentheses (nicknames)
+            # Remove anything in parentheses first
+            cleaned_name = re.sub(r'\s*\([^)]*\)', '', cleaned_name)
+
+            # Split by comma to get last and first names
+            if ',' in cleaned_name:
+                parts = cleaned_name.split(',', 1)
+                last_name = parts[0].strip()
+                first_name = parts[1].strip()
+            else:
+                # If no comma, assume it's "First Last" format
+                name_parts = cleaned_name.split()
+                if len(name_parts) >= 2:
+                    first_name = name_parts[0]
+                    last_name = name_parts[-1]
+                else:
+                    # Single name, use first 4 characters with proper case
+                    single_code = (cleaned_name[:4] + "XXXX")[:4]
+                    return single_code.capitalize() + single_code[2:].capitalize()[:2]
+
+            # Clean names by removing special characters and keeping only letters
+            first_name_clean = re.sub(r'[^a-zA-Z]', '', first_name)
+            last_name_clean = re.sub(r'[^a-zA-Z]', '', last_name)
+
+            # Extract first 2 characters from cleaned first name and capitalize properly
+            first_code = first_name_clean[:2] if len(first_name_clean) >= 2 else (first_name_clean + "X")[:2]
+            first_code = first_code.capitalize()  # First letter uppercase, second lowercase
+
+            # Extract first 2 characters from cleaned last name and capitalize properly
+            last_code = last_name_clean[:2] if len(last_name_clean) >= 2 else (last_name_clean + "X")[:2]
+            last_code = last_code.capitalize()  # First letter uppercase, second lowercase
+
+            # Combine first name code + last name code
+            name_code = first_code + last_code
+
+            logger.debug(f"Generated name code '{name_code}' for '{full_name}'")
+            return name_code
+
+        except Exception as e:
+            logger.warning(f"Error generating name code for '{full_name}': {e}")
+            return "UnKn"
         
     @log_performance
     def get_dashboard_data(
@@ -48,7 +121,12 @@ class OverTermDashboard:
         # Set defaults
         start_date = start_date or "07/01/2024"
         end_date = end_date or "07/31/2025"
-        client_ids = client_ids or config.DEFAULT_OVERTERM_CLIENT_IDS
+
+        # Handle client_ids properly - only use default if None is passed
+        if client_ids is None:
+            client_ids = config.DEFAULT_OVERTERM_CLIENT_IDS
+        # If empty list [] is passed, keep it as empty (means all clients)
+        # If list with IDs is passed, use those specific IDs
 
         payload = {
             "reportId": 13,
@@ -89,7 +167,8 @@ class OverTermDashboard:
                 "filters_applied": payload["filters"],
                 "summary": {
                     "total_authorizations": len(auth_details),
-                    "clients_found": len(set(detail.get("ClientName", "") for detail in auth_details)),
+                    "clients_found": len(set(self._generate_name_code(detail.get("ClientName", "")) for detail in auth_details)),
+                    "unique_client_codes": list(set(self._generate_name_code(detail.get("ClientName", "")) for detail in auth_details)),
                     "date_range": f"{start_date} to {end_date}"
                 },
                 "timestamp": datetime.now().isoformat()
@@ -172,10 +251,22 @@ class OverTermDashboard:
             raise OverTermDashboardError(f"Table truncation failed: {e}")
 
     def _prepare_authorization_data(self, auth_detail: Dict[str, Any]) -> List[Any]:
-        """Prepare a single authorization record for database insertion."""
+        """
+        Prepare a single authorization record for database insertion.
+
+        Converts full names to name codes for privacy/compression:
+        - ClientName: Full name -> 4-character code (e.g., "Gayagoy, Celine" -> "CeGa")
+        - RenderingProvider: Full name -> 4-character code
+        - ReferringProviderName: Full name -> 4-character code
+        """
+        # Generate name codes for name fields
+        client_name_code = self._generate_name_code(auth_detail.get("ClientName"))
+        rendering_provider_code = self._generate_name_code(auth_detail.get("RenderingProvider"))
+        referring_provider_code = self._generate_name_code(auth_detail.get("ReferringProviderName"))
+
         # Map API response fields to database columns
         return [
-            auth_detail.get("ClientName"),
+            client_name_code,  # Use name code instead of full ClientName
             auth_detail.get("FunderName"),
             auth_detail.get("ServiceLine"),
             auth_detail.get("AuthorizationNumber"),
@@ -194,9 +285,9 @@ class OverTermDashboard:
             auth_detail.get("SchedGoal"),
             auth_detail.get("DaysUntilExpiration"),
             auth_detail.get("AuthorizationStatus"),
-            auth_detail.get("RenderingProvider"),
+            rendering_provider_code,  # Use name code instead of full RenderingProvider
             auth_detail.get("ProcedureCodeId"),
-            auth_detail.get("ReferringProviderName")
+            referring_provider_code   # Use name code instead of full ReferringProviderName
         ]
 
     def _insert_overterm_data(self, conn, auth_details: List[Dict[str, Any]], table_name: str = "overterm_dashboard") -> tuple[int, int]:
