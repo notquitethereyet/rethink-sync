@@ -396,7 +396,9 @@ async def get_overterm_dashboard_post(request: Request) -> Dict[str, Any]:
         # Extract parameters
         start_date = body.get('start_date')
         end_date = body.get('end_date')
-        client_ids = body.get('client_ids')
+
+        # Handle both client_id and client_ids for backward compatibility
+        client_ids = body.get('client_ids') or body.get('client_id')
 
         # Handle auth_key in body
         if 'auth_key' in body:
@@ -461,7 +463,11 @@ async def sync_overterm_dashboard_post(request: Request) -> Dict[str, Any]:
         # Extract parameters
         start_date = body.get('start_date')
         end_date = body.get('end_date')
-        client_ids = body.get('client_ids')
+
+        # Handle both client_id and client_ids for backward compatibility
+        client_ids = body.get('client_ids') or body.get('client_id')
+
+        # Use default table name for overterm-sync endpoint
         table_name = body.get('table_name', 'overterm_dashboard')
 
         # Handle auth_key in body

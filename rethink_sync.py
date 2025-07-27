@@ -6,12 +6,13 @@ Handles downloading appointment data and syncing to Supabase database.
 
 import os
 import io
+import re
 import pandas as pd
 import psycopg2
 from datetime import datetime
 from dateutil.relativedelta import relativedelta
 from urllib.parse import urlparse
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 
 from config import config, db_config
 from logger import get_logger, get_sync_logger, log_performance
@@ -96,31 +97,40 @@ class RethinkSync:
             
     def _get_date_range(self) -> tuple[str, str]:
         """
-        Calculate date range based on provided dates or default to current month.
-        
+        Calculate date range based on provided dates with proper validation.
+
         Returns:
             Tuple of (start_date_str, end_date_str) in MM/DD/YYYY, HH:MM:SS AM/PM format
         """
         # Parse provided dates if any
         start_date = self._parse_date(getattr(self, 'from_date', None))
         end_date = self._parse_date(getattr(self, 'to_date', None))
-        
-        # If only one date is provided, use it for both start and end
-        if start_date and not end_date:
-            end_date = start_date.replace(hour=23, minute=59, second=59, microsecond=0)
-        elif end_date and not start_date:
-            start_date = end_date.replace(hour=0, minute=0, second=0, microsecond=0)
-        
-        # If no dates provided or parsing failed, use current month
-        if not start_date or not end_date:
-            # Get start of current month at 12:00:00 AM
-            start_date = datetime.now().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-            # Get end of current month at 11:59:59 PM
-            end_date = start_date + relativedelta(months=1, days=-1, hours=23, minutes=59, seconds=59)
-        else:
-            # Ensure times are set correctly for the provided dates
-            start_date = start_date.replace(hour=0, minute=0, second=0, microsecond=0)
-            end_date = end_date.replace(hour=23, minute=59, second=59, microsecond=0)
+
+        # Validate that both dates are provided
+        if not hasattr(self, 'from_date') or not self.from_date:
+            error_msg = "Missing required parameter: from_date must be provided in YYYY-MM-DD format"
+            logger.error(error_msg)
+            raise RethinkSyncError(error_msg)
+
+        if not hasattr(self, 'to_date') or not self.to_date:
+            error_msg = "Missing required parameter: to_date must be provided in YYYY-MM-DD format"
+            logger.error(error_msg)
+            raise RethinkSyncError(error_msg)
+
+        # Validate that dates were parsed successfully
+        if not start_date:
+            error_msg = f"Invalid from_date format: '{self.from_date}'. Expected YYYY-MM-DD format"
+            logger.error(error_msg)
+            raise RethinkSyncError(error_msg)
+
+        if not end_date:
+            error_msg = f"Invalid to_date format: '{self.to_date}'. Expected YYYY-MM-DD format"
+            logger.error(error_msg)
+            raise RethinkSyncError(error_msg)
+
+        # Ensure times are set correctly for the provided dates
+        start_date = start_date.replace(hour=0, minute=0, second=0, microsecond=0)
+        end_date = end_date.replace(hour=0, minute=0, second=0, microsecond=0)
 
         # Format dates using platform-agnostic string formatting
         start_str = f"{start_date.month}/{start_date.day}/{start_date.year}, {start_date.strftime('%I:%M:%S %p')}"
@@ -280,6 +290,77 @@ class RethinkSync:
                 mapped_columns[db_col] = excel_col
         return mapped_columns
 
+    def _generate_name_code(self, full_name: str) -> str:
+        """
+        Generate a 4-character name code from a full name for privacy/compression.
+
+        Format: FirstNameInitials + LastNameInitials (mixed case)
+        - Takes first 2 letters of first name + first 2 letters of last name
+        - Capitalizes first letter of each pair, lowercase for second letter
+        - Removes special characters (apostrophes, hyphens, etc.)
+        - Handles nicknames in parentheses by ignoring them
+
+        Examples:
+        - "Doe, John (Jane)" -> "JoDo"
+        - "O'Connor, Patrick" -> "PaOc"
+        - "Smith-Jones, Mary-Ann" -> "MaSm"
+        - "John, Doe" -> "JoDo"
+
+        Args:
+            full_name: Full name in "Last, First" or "Last, First (Nickname)" format
+
+        Returns:
+            Generated name code (4 characters in mixed case)
+        """
+        if not full_name or not isinstance(full_name, str):
+            return "UnKn"  # Default for unknown names
+
+        try:
+            # Clean the name and split by comma
+            cleaned_name = full_name.strip()
+
+            # Handle names with parentheses (nicknames)
+            # Remove anything in parentheses first
+            cleaned_name = re.sub(r'\s*\([^)]*\)', '', cleaned_name)
+
+            # Split by comma to get last and first names
+            if ',' in cleaned_name:
+                parts = cleaned_name.split(',', 1)
+                last_name = parts[0].strip()
+                first_name = parts[1].strip()
+            else:
+                # If no comma, assume it's "First Last" format
+                name_parts = cleaned_name.split()
+                if len(name_parts) >= 2:
+                    first_name = name_parts[0]
+                    last_name = name_parts[-1]
+                else:
+                    # Single name, use first 4 characters with proper case
+                    single_code = (cleaned_name[:4] + "XXXX")[:4]
+                    return single_code.capitalize() + single_code[2:].capitalize()[:2]
+
+            # Clean names by removing special characters and keeping only letters
+            first_name_clean = re.sub(r'[^a-zA-Z]', '', first_name)
+            last_name_clean = re.sub(r'[^a-zA-Z]', '', last_name)
+
+            # Extract first 2 characters from cleaned first name and capitalize properly
+            first_code = first_name_clean[:2] if len(first_name_clean) >= 2 else (first_name_clean + "X")[:2]
+            first_code = first_code.capitalize()  # First letter uppercase, second lowercase
+
+            # Extract first 2 characters from cleaned last name and capitalize properly
+            last_code = last_name_clean[:2] if len(last_name_clean) >= 2 else (last_name_clean + "X")[:2]
+            last_code = last_code.capitalize()  # First letter uppercase, second lowercase
+
+            # Combine first name code + last name code
+            name_code = first_code + last_code
+
+            logger.debug(f"Generated name code '{name_code}' for '{full_name}'")
+            return name_code
+
+        except Exception as e:
+            logger.warning(f"Error generating name code for '{full_name}': {e}")
+            return "UnKn"
+
     def _prepare_row_data(self, row: pd.Series, column_mapping: Dict[str, str]) -> list:
         """Prepare a single row for database insertion."""
         db_columns = [
@@ -297,6 +378,11 @@ class RethinkSync:
             if db_col in column_mapping:
                 excel_col = column_mapping[db_col]
                 value = row[excel_col]
+                
+                # Convert client name to nameCode for privacy
+                if db_col == 'client' and not pd.isna(value):
+                    value = self._generate_name_code(str(value))
+                
                 if pd.isna(value):
                     values.append(None)
                 else:

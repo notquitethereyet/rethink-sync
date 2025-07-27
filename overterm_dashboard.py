@@ -47,11 +47,10 @@ class OverTermDashboard:
         - Handles nicknames in parentheses by ignoring them
 
         Examples:
-        - "Gayagoy, Celine" -> "CeGa"
-        - "Miramontes, Ezequiel" -> "EzMi"
-        - "Yusupov, Yoqub (Yashek)" -> "YoYu"
+        - "Doe, John (Jane)" -> "JoDo"
         - "O'Connor, Patrick" -> "PaOc"
         - "Smith-Jones, Mary-Ann" -> "MaSm"
+        - "John, Doe" -> "JoDo"
 
         Args:
             full_name: Full name in "Last, First" or "Last, First (Nickname)" format
@@ -118,13 +117,22 @@ class OverTermDashboard:
         """Fetch Over Term dashboard data for ABA clients."""
         logger.info("Fetching Over Term dashboard data")
 
-        # Set defaults
-        start_date = start_date or "07/01/2024"
-        end_date = end_date or "07/31/2025"
+        # Validate required parameters
+        if not start_date:
+            error_msg = "Missing required parameter: start_date must be provided in MM/dd/yyyy format"
+            logger.error(error_msg)
+            raise OverTermDashboardError(error_msg)
 
-        # Handle client_ids properly - only use default if None is passed
+        if not end_date:
+            error_msg = "Missing required parameter: end_date must be provided in MM/dd/yyyy format"
+            logger.error(error_msg)
+            raise OverTermDashboardError(error_msg)
+
+        # Handle client_ids properly - require explicit specification
         if client_ids is None:
-            client_ids = config.DEFAULT_OVERTERM_CLIENT_IDS
+            error_msg = "Missing required parameter: client_ids must be provided as a list of integers (use empty list [] for all clients)"
+            logger.error(error_msg)
+            raise OverTermDashboardError(error_msg)
         # If empty list [] is passed, keep it as empty (means all clients)
         # If list with IDs is passed, use those specific IDs
 

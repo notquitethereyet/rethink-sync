@@ -40,15 +40,8 @@ class Config:
     RETHINK_APPLICATION_KEY = "74569e11-18b4-4122-a58d-a4b830aa12c4"
     RETHINK_USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64; rv:139.0) Gecko/139.0"
     
-    # Database settings
-    DEFAULT_APPOINTMENT_TABLE = "rethinkdump"
-    DEFAULT_OVERTERM_TABLE = "overterm_dashboard"
-    
     # Google Cloud settings
     GCP_PROJECT_ID = os.getenv("GCP_PROJECT_ID")
-    
-    # Default Over Term client IDs
-    DEFAULT_OVERTERM_CLIENT_IDS = [325526, 349284, 304907, 297808]
     
     # Request timeout settings
     REQUEST_TIMEOUT = 120  # seconds

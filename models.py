@@ -23,15 +23,15 @@ class SyncRequest(BaseModel):
         example="2024-01-31"
     )
     table_name: str = Field(
-        default="rethinkdump",
-        description="Database table name for appointment data",
+        ...,
+        description="Database table name for appointment data (required)",
         example="rethinkdump"
     )
     auth_key: Optional[str] = Field(
         None,
         description="Optional API authentication key"
     )
-    
+
     @field_validator('from_date', 'to_date')
     @classmethod
     def validate_date_format(cls, v):
@@ -58,19 +58,19 @@ class SyncRequest(BaseModel):
 class DashboardRequest(BaseModel):
     """Request model for Over Term dashboard endpoint."""
     
-    start_date: Optional[str] = Field(
-        None,
-        description="Start date in MM/dd/yyyy format",
+    start_date: str = Field(
+        ...,
+        description="Start date in MM/dd/yyyy format (required)",
         example="01/01/2024"
     )
-    end_date: Optional[str] = Field(
-        None,
-        description="End date in MM/dd/yyyy format", 
+    end_date: str = Field(
+        ...,
+        description="End date in MM/dd/yyyy format (required)",
         example="01/31/2024"
     )
-    client_ids: Optional[List[int]] = Field(
-        None,
-        description="List of client IDs to filter for",
+    client_ids: List[int] = Field(
+        ...,
+        description="List of client IDs to filter for (required, use empty list [] for all clients)",
         example=[325526, 349284, 304907]
     )
     auth_key: Optional[str] = Field(
@@ -115,19 +115,19 @@ class DashboardRequest(BaseModel):
 class OverTermSyncRequest(BaseModel):
     """Request model for Over Term sync endpoint."""
     
-    start_date: Optional[str] = Field(
-        None,
-        description="Start date in MM/dd/yyyy format",
+    start_date: str = Field(
+        ...,
+        description="Start date in MM/dd/yyyy format (required)",
         example="01/01/2024"
     )
-    end_date: Optional[str] = Field(
-        None,
-        description="End date in MM/dd/yyyy format",
+    end_date: str = Field(
+        ...,
+        description="End date in MM/dd/yyyy format (required)",
         example="01/31/2024"
     )
-    client_ids: Optional[List[int]] = Field(
-        None,
-        description="List of client IDs to filter for",
+    client_ids: List[int] = Field(
+        ...,
+        description="List of client IDs to filter for (required, use empty list [] for all clients)",
         example=[325526, 349284, 304907]
     )
     table_name: str = Field(
