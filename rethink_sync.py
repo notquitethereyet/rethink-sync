@@ -294,6 +294,9 @@ class RethinkSync:
         """
         Generate a 4-character name code from a full name for privacy/compression.
 
+        For the run endpoint, client names are in "Firstname Lastname" or "Firstname (Nickname) Lastname" format.
+        The nameCode should always be FiLa format (first two letters of first name + first two of last name).
+
         Format: FirstNameInitials + LastNameInitials (mixed case)
         - Takes first 2 letters of first name + first 2 letters of last name
         - Capitalizes first letter of each pair, lowercase for second letter
@@ -301,13 +304,13 @@ class RethinkSync:
         - Handles nicknames in parentheses by ignoring them
 
         Examples:
-        - "Doe, John (Jane)" -> "JoDo"
-        - "O'Connor, Patrick" -> "PaOc"
-        - "Smith-Jones, Mary-Ann" -> "MaSm"
-        - "John, Doe" -> "JoDo"
+        - "John Doe" -> "JoDo"
+        - "John (Johnny) Doe" -> "JoDo"
+        - "O'Connor Patrick" -> "PaOc" 
+        - "Mary-Ann Smith-Jones" -> "MaSm"
 
         Args:
-            full_name: Full name in "Last, First" or "Last, First (Nickname)" format
+            full_name: Full name in "First Last" or "First (Nickname) Last" format
 
         Returns:
             Generated name code (4 characters in mixed case)
@@ -323,21 +326,17 @@ class RethinkSync:
             # Remove anything in parentheses first
             cleaned_name = re.sub(r'\s*\([^)]*\)', '', cleaned_name)
 
-            # Split by comma to get last and first names
-            if ',' in cleaned_name:
-                parts = cleaned_name.split(',', 1)
-                last_name = parts[0].strip()
-                first_name = parts[1].strip()
+            # For the run endpoint, always assume "First Last" format
+            # Split by space to get first and last names
+            name_parts = cleaned_name.split()
+            if len(name_parts) >= 2:
+                first_name = name_parts[0]
+                last_name = name_parts[-1]
             else:
-                # If no comma, assume it's "First Last" format
-                name_parts = cleaned_name.split()
-                if len(name_parts) >= 2:
-                    first_name = name_parts[0]
-                    last_name = name_parts[-1]
-                else:
-                    # Single name, use first 4 characters with proper case
-                    single_code = (cleaned_name[:4] + "XXXX")[:4]
-                    return single_code.capitalize() + single_code[2:].capitalize()[:2]
+                # Single name, use first 4 characters with proper case
+                single_code = (cleaned_name[:4] + "XXXX")[:4]
+                return single_code.capitalize() + single_code[1:].lower()[:1] + \
+                       single_code[2:].capitalize()[:1] + single_code[3:].lower()[:1]
 
             # Clean names by removing special characters and keeping only letters
             first_name_clean = re.sub(r'[^a-zA-Z]', '', first_name)
@@ -345,11 +344,11 @@ class RethinkSync:
 
             # Extract first 2 characters from cleaned first name and capitalize properly
             first_code = first_name_clean[:2] if len(first_name_clean) >= 2 else (first_name_clean + "X")[:2]
-            first_code = first_code.capitalize()  # First letter uppercase, second lowercase
+            first_code = first_code[0].upper() + first_code[1].lower()  # First letter uppercase, second lowercase
 
             # Extract first 2 characters from cleaned last name and capitalize properly
             last_code = last_name_clean[:2] if len(last_name_clean) >= 2 else (last_name_clean + "X")[:2]
-            last_code = last_code.capitalize()  # First letter uppercase, second lowercase
+            last_code = last_code[0].upper() + last_code[1].lower()  # First letter uppercase, second lowercase
 
             # Combine first name code + last name code
             name_code = first_code + last_code
