@@ -40,6 +40,9 @@ class OverTermDashboard:
         """
         Generate a 4-character name code from a full name for privacy/compression.
 
+        For the overterm dashboard, client names are in "Lastname, Firstname" format.
+        The nameCode should always be FiLa format (first two letters of first name + first two of last name).
+
         Format: FirstNameInitials + LastNameInitials (mixed case)
         - Takes first 2 letters of first name + first 2 letters of last name
         - Capitalizes first letter of each pair, lowercase for second letter
@@ -50,7 +53,6 @@ class OverTermDashboard:
         - "Doe, John (Jane)" -> "JoDo"
         - "O'Connor, Patrick" -> "PaOc"
         - "Smith-Jones, Mary-Ann" -> "MaSm"
-        - "John, Doe" -> "JoDo"
 
         Args:
             full_name: Full name in "Last, First" or "Last, First (Nickname)" format
@@ -83,7 +85,8 @@ class OverTermDashboard:
                 else:
                     # Single name, use first 4 characters with proper case
                     single_code = (cleaned_name[:4] + "XXXX")[:4]
-                    return single_code.capitalize() + single_code[2:].capitalize()[:2]
+                    return single_code.capitalize() + single_code[1:].lower()[:1] + \
+                           single_code[2:].capitalize()[:1] + single_code[3:].lower()[:1]
 
             # Clean names by removing special characters and keeping only letters
             first_name_clean = re.sub(r'[^a-zA-Z]', '', first_name)
@@ -91,11 +94,11 @@ class OverTermDashboard:
 
             # Extract first 2 characters from cleaned first name and capitalize properly
             first_code = first_name_clean[:2] if len(first_name_clean) >= 2 else (first_name_clean + "X")[:2]
-            first_code = first_code.capitalize()  # First letter uppercase, second lowercase
+            first_code = first_code[0].upper() + first_code[1].lower()  # First letter uppercase, second lowercase
 
             # Extract first 2 characters from cleaned last name and capitalize properly
             last_code = last_name_clean[:2] if len(last_name_clean) >= 2 else (last_name_clean + "X")[:2]
-            last_code = last_code.capitalize()  # First letter uppercase, second lowercase
+            last_code = last_code[0].upper() + last_code[1].lower()  # First letter uppercase, second lowercase
 
             # Combine first name code + last name code
             name_code = first_code + last_code
