@@ -4,9 +4,9 @@ Production-ready automated data sync from Rethink Behavioral Health to Supabase 
 
 ## 🎯 Overview
 
-This tool automates the download of appointment data and Over Term dashboard data from Rethink BH and ingests it into your Supabase PostgreSQL database. Features enterprise-grade logging, security monitoring, rate limiting, and health checks for production deployment on Google Cloud Run.
+This tool automates the download of appointment data, cancelled appointments, and Over Term dashboard data from Rethink BH and ingests it into your Supabase PostgreSQL database. Features enterprise-grade logging, security monitoring, rate limiting, and health checks for production deployment on Google Cloud Run.
 
-> **🔒 Security Update**: All main endpoints (`/run`, `/overterm-dashboard`, `/overterm-sync`) are now POST-only for enhanced security. GET endpoints have been removed.
+> **🔒 Security Update**: All main endpoints (`/run`, `/overterm-dashboard`, `/overterm-sync`, `/cancelled-appointments-sync`) are now POST-only for enhanced security. GET endpoints have been removed.
 
 ## ⚡ Quick Start
 
@@ -73,6 +73,11 @@ curl -X POST https://your-service-url.run.app/run \
 curl -X POST https://your-service-url.run.app/overterm-sync \
   -H "Content-Type: application/json" \
   -d '{"table_name":"overterm_dashboard"}'
+
+# Cancelled appointments sync
+curl -X POST https://your-service-url.run.app/cancelled-appointments-sync \
+  -H "Content-Type: application/json" \
+  -d '{"from_date":"2024-01-01","to_date":"2024-01-31","table_name":"cancelled_appointments","truncate":true}'
 ```
 
 ### Local Development & Testing
@@ -98,6 +103,7 @@ curl -X POST http://localhost:8080/run \
 - `main.py` - **FastAPI application** - Production-ready webhook service with comprehensive logging
 - `rethink_sync.py` - **Appointment sync module** - Downloads and syncs appointment data
 - `overterm_dashboard.py` - **Over Term dashboard module** - Syncs Over Term authorization data
+- `cancelled_appointments.py` - **Cancelled appointments module** - Syncs cancelled appointments data
 - `auth.py` - **Authentication module** - Handles Rethink BH login and session management
 
 ### Deployment & Configuration
@@ -253,6 +259,21 @@ gcloud scheduler jobs create http overterm-sync-daily \
 - API docs available at `/docs` endpoint when deployed
 
 ## 📝 Recent Changes
+
+### v1.3.0 - Cancelled Appointments Sync
+- **🗓️ New Endpoint** - Added `/cancelled-appointments-sync` endpoint for syncing cancelled appointments
+- **🔄 Full Workflow** - Fetches cancelled appointments from Rethink BH and syncs to database
+- **🧹 Table Management** - Supports table truncation before insertion for clean data
+- **📊 Detailed Results** - Returns comprehensive sync statistics and timing information
+- **✅ Validation** - Strict request validation with Pydantic models
+- **📝 Documentation** - Enhanced FastAPI documentation with request/response examples
+
+### v1.2.0 - Client Name Anonymization
+- **🔐 Privacy Enhancement** - Client names are now anonymized using nameCode in the run endpoint
+- **🏷️ nameCode Format** - 4-character code using first two letters of first name + first two of last name (e.g., "John Doe" → "JoDo")
+- **🧩 Format Handling** - Properly handles different name formats and ignores nicknames in parentheses
+- **🔄 Consistent Anonymization** - Same person will always generate the same nameCode
+- **🛡️ Data Protection** - Full client names are no longer stored in the database for the run endpoint
 
 ### v1.1.0 - Security Enhancement
 - **🔒 Removed GET endpoints** for `/run`, `/overterm-dashboard`, and `/overterm-sync`

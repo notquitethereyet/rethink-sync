@@ -17,7 +17,7 @@ class Config:
     
     # Application settings
     APP_NAME = "Rethink BH Sync API"
-    APP_VERSION = "1.1.0"
+    APP_VERSION = "1.2.0"
     APP_DESCRIPTION = "Automated sync service for Rethink Behavioral Health to Supabase"
     
     # Server settings

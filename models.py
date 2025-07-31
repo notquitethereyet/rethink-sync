@@ -185,10 +185,10 @@ class SyncResponse(BaseModel):
     """Response model for sync operations."""
     
     status: str = Field(description="Operation status")
-    message: Optional[str] = Field(None, description="Status message")
-    table: Optional[str] = Field(None, description="Target table name")
-    rows_processed: Optional[int] = Field(None, description="Number of rows processed")
-    rows_inserted: Optional[int] = Field(None, description="Number of rows successfully inserted")
+    sync_message: Optional[str] = Field(None, description="Status message")
+    table_name: Optional[str] = Field(None, description="Target table name")
+    records_processed: Optional[int] = Field(None, description="Number of records processed")
+    records_inserted: Optional[int] = Field(None, description="Number of records successfully inserted")
     errors: Optional[int] = Field(None, description="Number of errors encountered")
     timestamp: str = Field(description="Operation timestamp")
     duration_seconds: Optional[float] = Field(None, description="Operation duration in seconds")
@@ -218,6 +218,58 @@ class ErrorResponse(BaseModel):
     message: str = Field(description="Error message")
     timestamp: str = Field(description="Error timestamp")
     detail: Optional[str] = Field(None, description="Additional error details")
+
+class CancelledAppointmentsRequest(BaseModel):
+    """Request model for cancelled appointments sync endpoint."""
+    
+    from_date: str = Field(
+        ...,
+        description="Start date in YYYY-MM-DD format (required)",
+        example="2024-01-01"
+    )
+    to_date: str = Field(
+        ...,
+        description="End date in YYYY-MM-DD format (required)",
+        example="2024-01-31"
+    )
+    table_name: str = Field(
+        ...,
+        description="Database table name for cancelled appointments data (required)",
+        example="cancelled_appointments"
+    )
+    truncate: bool = Field(
+        default=True,
+        description="Whether to truncate the table before inserting data",
+        example=True
+    )
+    auth_key: Optional[str] = Field(
+        None,
+        description="Optional API authentication key"
+    )
+    
+    @field_validator('from_date', 'to_date')
+    @classmethod
+    def validate_date_format(cls, v):
+        """Validate date format is YYYY-MM-DD."""
+        if not re.match(r'^\d{4}-\d{2}-\d{2}$', v):
+            raise ValueError('Date must be in YYYY-MM-DD format')
+
+        # Try to parse the date to ensure it's valid
+        try:
+            datetime.strptime(v, '%Y-%m-%d')
+        except ValueError:
+            raise ValueError('Invalid date')
+
+        return v
+
+    @field_validator('table_name')
+    @classmethod
+    def validate_table_name(cls, v):
+        """Validate table name contains only safe characters."""
+        if not re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', v):
+            raise ValueError('Table name must contain only letters, numbers, and underscores, and start with a letter or underscore')
+        return v
+
 
 class ServiceInfo(BaseModel):
     """Response model for service information endpoint."""

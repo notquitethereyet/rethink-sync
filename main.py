@@ -18,6 +18,7 @@ from models import (
 )
 from rethink_sync import RethinkSync, RethinkSyncError
 from overterm_dashboard import OverTermDashboard, OverTermDashboardError
+from cancelled_appointments import CancelledAppointmentsFetcher
 from auth import RethinkAuthError
 
 from fastapi import FastAPI, HTTPException, Request
@@ -176,6 +177,7 @@ async def root():
             "sync": "POST /run",
             "overterm-dashboard": "POST /overterm-dashboard",
             "overterm-sync": "POST /overterm-sync",
+            "cancelled-appointments": "POST /cancelled-appointments",
             "health": "GET /health",
             "ready": "GET /ready",
             "docs": "GET /docs"
@@ -519,6 +521,138 @@ async def sync_overterm_dashboard_post(request: Request) -> Dict[str, Any]:
         raise HTTPException(status_code=500, detail="Error processing request")
 
 # Cloud Run requires the app to listen on the PORT environment variable
+
+
+@app.post("/cancelled-appointments-sync", response_model=SyncResponse, tags=["Sync Operations"], summary="Sync Cancelled Appointments to Database")
+async def sync_cancelled_appointments_post(request: Request) -> Dict[str, Any]:
+    """
+    Sync cancelled appointments from Rethink BH to a specified database table.
+
+    This endpoint fetches cancelled appointments from the Rethink BH API for the specified date range
+    and inserts them into the specified database table. If truncate is set to true (default),
+    the table will be truncated before insertion.
+    
+    ## Request Body
+    - **from_date**: Start date in YYYY-MM-DD format (required)
+    - **to_date**: End date in YYYY-MM-DD format (required)
+    - **table_name**: Name of the database table to insert data into (required)
+    - **truncate**: Whether to truncate the table before inserting (default: true)
+    - **auth_key**: Optional API key for authentication
+    
+    ## Response
+    - **status**: Operation status (success/error)
+    - **message**: Operation result message
+    - **table_name**: Target database table name
+    - **records_processed**: Number of records processed
+    - **records_inserted**: Number of records successfully inserted
+    - **errors**: Number of insertion errors
+    - **timestamp**: Operation timestamp
+    - **duration_seconds**: Operation duration in seconds
+    
+    ## Notes
+    - The specified table must exist in the database
+    - Date range should typically be limited to 1-3 months for optimal performance
+    - Authentication is required if enabled in server configuration
+    """
+    try:
+        # Parse JSON body
+        body = await request.json()
+        
+        # Validate using Pydantic model
+        try:
+            from models import CancelledAppointmentsRequest
+            req_model = CancelledAppointmentsRequest(**body)
+        except ValueError as e:
+            logger.error(f"Validation error: {e}")
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "status": "error",
+                    "message": f"Validation error: {str(e)}",
+                    "timestamp": datetime.now().isoformat()
+                }
+            )
+        
+        # Extract validated fields
+        from_date = req_model.from_date
+        to_date = req_model.to_date
+        table_name = req_model.table_name
+        truncate = req_model.truncate
+        
+        # If auth_key is in the body, add it to the query params for the GET handler
+        if req_model.auth_key:
+            request.scope['query_string'] = f"auth_key={req_model.auth_key}"
+            
+    except json.JSONDecodeError as e:
+        # Invalid JSON format
+        logger.error(f"Malformed request: Invalid JSON format - {e}")
+        return JSONResponse(
+            status_code=400,
+            content={
+                "status": "error",
+                "message": "Invalid JSON format in request body",
+                "timestamp": datetime.now().isoformat()
+            }
+        )
+    except Exception as e:
+        # Other unexpected errors
+        logger.error(f"Error processing request body: {e}")
+        return JSONResponse(
+            status_code=500,
+            content={
+                "status": "error",
+                "message": f"Error processing request: {str(e)}",
+                "timestamp": datetime.now().isoformat()
+            }
+        )
+
+    # Check authorization if enabled
+    if not check_auth(request):
+        logger.warning("Unauthorized cancelled appointments sync attempt")
+        raise HTTPException(
+            status_code=401,
+            detail="Unauthorized: Invalid or missing auth key"
+        )
+
+    start_time = datetime.now()
+    logger.info(f"Cancelled appointments sync request received at {start_time.isoformat()}")
+
+    try:
+        # Initialize auth
+        from auth import RethinkAuth
+        from cancelled_appointments import sync_cancelled_appointments_to_database
+        auth = RethinkAuth()
+        
+        # Execute sync with parameters
+        result = sync_cancelled_appointments_to_database(
+            from_date=from_date,
+            to_date=to_date,
+            table_name=table_name,
+            truncate=truncate
+        )
+
+        # Add timing information
+        end_time = datetime.now()
+        duration = (end_time - start_time).total_seconds()
+
+        response = {
+            **result,
+            "timestamp": end_time.isoformat(),
+            "duration_seconds": round(duration, 2)
+        }
+
+        logger.info(f"Cancelled appointments sync completed successfully in {duration:.2f}s")
+        return response
+
+    except Exception as e:
+        # Log and re-raise unexpected errors with full context
+        end_time = datetime.now()
+        duration = (end_time - start_time).total_seconds()
+        logger.error(f"Unexpected error in cancelled appointments sync endpoint after {duration:.2f}s: {str(e)}")
+        logger.error(traceback.format_exc())
+        raise e
+
+
 if __name__ == "__main__":
     import uvicorn
     
