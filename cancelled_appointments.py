@@ -1,6 +1,7 @@
 import logging
 import json
 import os
+import re
 import time
 import uuid
 import datetime
@@ -200,6 +201,75 @@ class CancelledAppointmentsFetcher:
         logger.info(f"Total cancelled appointments fetched: {len(all_appointments)}")
         return all_appointments
     
+    def _generate_name_code(self, full_name: str) -> str:
+        """
+        Generate a 4-character name code from a full name for privacy/compression.
+
+        For the cancelled appointments, client names are in "Firstname Lastname" format.
+        The nameCode should always be FiLa format (first two letters of first name + first two of last name).
+
+        Format: FirstNameInitials + LastNameInitials (mixed case)
+        - Takes first 2 letters of first name + first 2 letters of last name
+        - Capitalizes first letter of each pair, lowercase for second letter
+        - Removes special characters (apostrophes, hyphens, etc.)
+        - Handles nicknames in parentheses by ignoring them
+
+        Examples:
+        - "John Doe" -> "JoDo"
+        - "John (Johnny) Doe" -> "JoDo"
+        - "O'Connor Patrick" -> "PaOc" 
+        - "Mary-Ann Smith-Jones" -> "MaSm"
+
+        Args:
+            full_name: Full name in "First Last" or "First (Nickname) Last" format
+
+        Returns:
+            Generated name code (4 characters in mixed case)
+        """
+        if not full_name or not isinstance(full_name, str):
+            return "UnKn"  # Default for unknown names
+
+        try:
+            # Clean the name and split by comma
+            cleaned_name = full_name.strip()
+
+            # Handle names with parentheses (nicknames)
+            # Remove anything in parentheses first
+            cleaned_name = re.sub(r'\s*\([^)]*\)', '', cleaned_name)
+
+            # Split by space to get first and last names
+            name_parts = cleaned_name.split()
+            if len(name_parts) >= 2:
+                first_name = name_parts[0]
+                last_name = name_parts[-1]
+            else:
+                # Single name, use first 4 characters with proper case
+                single_code = (cleaned_name[:4] + "XXXX")[:4]
+                return single_code.capitalize() + single_code[1:].lower()[:1] + \
+                       single_code[2:].capitalize()[:1] + single_code[3:].lower()[:1]
+
+            # Clean names by removing special characters and keeping only letters
+            first_name_clean = re.sub(r'[^a-zA-Z]', '', first_name)
+            last_name_clean = re.sub(r'[^a-zA-Z]', '', last_name)
+
+            # Extract first 2 characters from cleaned first name and capitalize properly
+            first_code = first_name_clean[:2] if len(first_name_clean) >= 2 else (first_name_clean + "X")[:2]
+            first_code = first_code[0].upper() + first_code[1].lower()  # First letter uppercase, second lowercase
+
+            # Extract first 2 characters from cleaned last name and capitalize properly
+            last_code = last_name_clean[:2] if len(last_name_clean) >= 2 else (last_name_clean + "X")[:2]
+            last_code = last_code[0].upper() + last_code[1].lower()  # First letter uppercase, second lowercase
+
+            # Combine first name code + last name code
+            name_code = first_code + last_code
+
+            logger.debug(f"Generated name code '{name_code}' for '{full_name}'")
+            return name_code
+
+        except Exception as e:
+            logger.warning(f"Error generating name code for '{full_name}': {e}")
+            return "UnKn"
+
     def process_appointments(self, appointments: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
         Process the raw appointment data to extract relevant fields.
@@ -217,11 +287,15 @@ class CancelledAppointmentsFetcher:
             appt_data = appointment.get("appt", {})
             evt_data = appointment.get("evt", {})
             
+            # Get the client name and anonymize it
+            client_name = appt_data.get("clientName")
+            anonymized_client_name = self._generate_name_code(client_name) if client_name else None
+            
             # Create a processed record with relevant fields
             processed_appt = {
                 "id": appt_data.get("id"),
                 "client_id": appt_data.get("clientId"),
-                "client_name": appt_data.get("clientName"),
+                "client_name": anonymized_client_name,  # Use anonymized client name
                 "staff_id": appt_data.get("staffId"),
                 "staff_name": appt_data.get("staffName"),
                 "staff_title": appt_data.get("staffTitle"),
