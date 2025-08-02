@@ -306,6 +306,7 @@ class CancelledAppointmentsFetcher:
                 "status_name": appt_data.get("statusName"),
                 "cancellation_type_id": appt_data.get("cancellationTypeId"),
                 "cancellation_note": appt_data.get("cancellationNote"),
+                "cancellation_type_name": appt_data.get("cancellationTypeName"),
                 "location_name": appt_data.get("locationName"),
                 "service_name": appt_data.get("serviceName"),
                 "provider_service_name": appt_data.get("providerServiceName"),
@@ -315,6 +316,14 @@ class CancelledAppointmentsFetcher:
                 "modified_by": appt_data.get("modifiedBy"),
                 "hours": evt_data.get("hours", 0),
                 "minutes": evt_data.get("minutes", 0),
+                # Additional fields for cancelledAppointments schema
+                "series_appointment_id": appt_data.get("seriesAppointmentId"),
+                "parent_verification": appt_data.get("isParentVerificationRequired"),
+                "paycode_name": appt_data.get("paycodeName"),
+                "appointment_tag": appt_data.get("activityTagName"),
+                "validation": evt_data.get("validation"),
+                "appointment_type": appt_data.get("appointmentTypeName"),
+                "duration": float(evt_data.get("hours", 0)) + (float(evt_data.get("minutes", 0)) / 60) if (evt_data.get("hours") is not None or evt_data.get("minutes") is not None) else None
             }
             
             processed.append(processed_appt)
@@ -515,21 +524,32 @@ class CancelledAppointmentsFetcher:
     def _prepare_row_data(self, appointment: Dict[str, Any]) -> list:
         """Prepare a single appointment record for database insertion."""
         # Define the columns in the order they should be inserted
-        # Adjust these columns based on your database table structure
+        # Adjusted columns based on cancelledAppointments schema
         db_columns = [
-            'id', 'client_id', 'client_name', 'staff_id', 'staff_name',
+            'client_id', 'client_name', 'staff_id', 'staff_name',
             'staff_title', 'start_date', 'start_time', 'end_time',
             'status_id', 'status_name', 'cancellation_type_id',
             'cancellation_note', 'location_name', 'service_name',
             'provider_service_name', 'funder_name', 'date_created',
-            'date_last_modified', 'modified_by', 'hours', 'minutes'
+            'date_last_modified', 'modified_by', 'hours', 'minutes',
+            'appointmentid',  # Store the original ID as appointmentid
+            'series_appointment_id', 'parent_verification', 'paycode_name',
+            'appointment_tag', 'validation', 'appointment_type',
+            'cancellation_type_name', 'duration'
         ]
         
         values = []
         for col in db_columns:
-            # Get the value from the appointment dict, or None if not present
-            value = appointment.get(col)
-            values.append(value)
+            if col == 'appointmentid':
+                # Store the original ID in the appointmentid field
+                values.append(appointment.get('id'))
+            elif col == 'table_last_updated':
+                # Use current timestamp for table_last_updated
+                values.append(datetime.datetime.now(datetime.timezone.utc))
+            else:
+                # Get the value from the appointment dict, or None if not present
+                value = appointment.get(col)
+                values.append(value)
             
         return values
         
@@ -568,14 +588,19 @@ class CancelledAppointmentsFetcher:
                     # Flatten the batch values for the execute call
                     flattened_values = [item for sublist in batch for item in sublist]
 
-                    # Define the columns based on the database table structure
+                    # Define the columns based on the database table structure - without 'id' as it's auto-incrementing
+                    # Updated columns to match cancelledAppointments schema
                     columns = [
-                        'id', 'client_id', 'client_name', 'staff_id', 'staff_name',
+                        'client_id', 'client_name', 'staff_id', 'staff_name',
                         'staff_title', 'start_date', 'start_time', 'end_time',
                         'status_id', 'status_name', 'cancellation_type_id',
                         'cancellation_note', 'location_name', 'service_name',
                         'provider_service_name', 'funder_name', 'date_created',
-                        'date_last_modified', 'modified_by', 'hours', 'minutes'
+                        'date_last_modified', 'modified_by', 'hours', 'minutes',
+                        'appointmentid',  # Store the original ID as appointmentid
+                        'series_appointment_id', 'parent_verification', 'paycode_name',
+                        'appointment_tag', 'validation', 'appointment_type',
+                        'cancellation_type_name', 'duration'
                     ]
                     
                     column_str = '", "'.join(columns)

@@ -260,6 +260,15 @@ gcloud scheduler jobs create http overterm-sync-daily \
 
 ## 📝 Recent Changes
 
+### v1.4.0 - Enhanced Cancelled Appointments Sync
+- **🔄 Complete Schema Support** - Full field mapping from Rethink API to `cancelled_dump` table
+- **🧩 Schema Alignment** - All fields required by `cancelledAppointments` schema are now captured
+- **⏰ UI Timestamp Support** - Added support for UI-style date format (e.g., '8/31/2025, 3:00:00 AM')
+- **🔄 ISO Date Conversion** - Automatic conversion of UI dates to ISO format for API requests
+- **📊 Duration Calculation** - Added calculated duration field combining hours and minutes
+- **🏷️ Enhanced Metadata** - Additional fields like series_appointment_id, parent_verification, and more
+- **📝 Documentation** - Updated schema documentation and SQL migration scripts
+
 ### v1.3.0 - Cancelled Appointments Sync
 - **🗓️ New Endpoint** - Added `/cancelled-appointments-sync` endpoint for syncing cancelled appointments
 - **🔄 Full Workflow** - Fetches cancelled appointments from Rethink BH and syncs to database

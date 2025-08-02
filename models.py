@@ -224,13 +224,13 @@ class CancelledAppointmentsRequest(BaseModel):
     
     from_date: str = Field(
         ...,
-        description="Start date in YYYY-MM-DD format (required)",
-        example="2024-01-01"
+        description="Start date in YYYY-MM-DD format or UI format (M/D/YYYY, h:mm:ss AM/PM) (required)",
+        example="2024-01-01 or 1/1/2024, 12:00:00 AM"
     )
     to_date: str = Field(
         ...,
-        description="End date in YYYY-MM-DD format (required)",
-        example="2024-01-31"
+        description="End date in YYYY-MM-DD format or UI format (M/D/YYYY, h:mm:ss AM/PM) (required)",
+        example="2024-01-31 or 1/31/2024, 11:59:59 PM"
     )
     table_name: str = Field(
         ...,
@@ -250,17 +250,35 @@ class CancelledAppointmentsRequest(BaseModel):
     @field_validator('from_date', 'to_date')
     @classmethod
     def validate_date_format(cls, v):
-        """Validate date format is YYYY-MM-DD."""
-        if not re.match(r'^\d{4}-\d{2}-\d{2}$', v):
-            raise ValueError('Date must be in YYYY-MM-DD format')
+        """Validate and convert date format.
+        
+        Accepts two formats:
+        1. YYYY-MM-DD (ISO format)
+        2. M/D/YYYY, h:mm:ss AM/PM (UI format)
+        
+        Returns date in YYYY-MM-DD format.
+        """
+        # Check for ISO format (YYYY-MM-DD)
+        if re.match(r'^\d{4}-\d{2}-\d{2}$', v):
+            try:
+                datetime.strptime(v, '%Y-%m-%d')
+                return v  # Already in correct format
+            except ValueError:
+                raise ValueError('Invalid ISO format date')
+        
+        # Check for UI format (M/D/YYYY, h:mm:ss AM/PM)
+        ui_pattern = r'^\d{1,2}/\d{1,2}/\d{4},\s+\d{1,2}:\d{2}:\d{2}\s+[AP]M$'
+        if re.match(ui_pattern, v):
+            try:
+                # Parse the UI date format
+                dt = datetime.strptime(v, '%m/%d/%Y, %I:%M:%S %p')
+                # Return in ISO format
+                return dt.strftime('%Y-%m-%d')
+            except ValueError:
+                raise ValueError('Invalid UI format date')
+        
+        raise ValueError('Date must be in YYYY-MM-DD format or M/D/YYYY, h:mm:ss AM/PM format')
 
-        # Try to parse the date to ensure it's valid
-        try:
-            datetime.strptime(v, '%Y-%m-%d')
-        except ValueError:
-            raise ValueError('Invalid date')
-
-        return v
 
     @field_validator('table_name')
     @classmethod
