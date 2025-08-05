@@ -223,9 +223,9 @@ class OverTermDashboard:
         except Exception as e:
             logger.error(f"Database connection failed: {e}")
             raise OverTermDashboardError(f"Database connection failed: {e}")
-
-    def _truncate_overterm_table(self, conn, table_name: str = "overterm_dashboard") -> None:
-        """Truncate the Over Term dashboard table and reset ID sequence."""
+            
+    def _reset_id_sequence(self, conn, table_name: str = "overterm_dashboard") -> None:
+        """Reset the ID sequence for the table without truncating data."""
         try:
             with conn.cursor() as cur:
                 # Check if table exists
@@ -241,10 +241,6 @@ class OverTermDashboard:
                 if not table_exists:
                     raise OverTermDashboardError(f"Table '{table_name}' does not exist")
 
-                # Truncate the table
-                cur.execute(f'TRUNCATE TABLE "{table_name}" CASCADE')
-                logger.info(f"Table '{table_name}' truncated")
-
                 # Reset sequence
                 cur.execute(f"""
                     SELECT pg_get_serial_sequence('"{table_name}"', 'id')
@@ -258,8 +254,8 @@ class OverTermDashboard:
 
                 conn.commit()
         except Exception as e:
-            logger.error(f"Table truncation failed: {e}")
-            raise OverTermDashboardError(f"Table truncation failed: {e}")
+            logger.error(f"Sequence reset failed: {e}")
+            raise OverTermDashboardError(f"Sequence reset failed: {e}")
 
     def _prepare_authorization_data(self, auth_detail: Dict[str, Any]) -> List[Any]:
         """
@@ -402,9 +398,10 @@ class OverTermDashboard:
             db_url = self._get_database_url()
 
             with self._connect_database(db_url) as conn:
-                # Truncate existing data
-                self._truncate_overterm_table(conn, table_name)
-
+                # No longer truncating existing data - sequential requests will append data
+                # Reset ID sequence before insertion
+                self._reset_id_sequence(conn, table_name)
+                
                 # Insert new data
                 success_count, error_count = self._insert_overterm_data(conn, auth_details, table_name)
 

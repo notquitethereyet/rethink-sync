@@ -260,6 +260,12 @@ gcloud scheduler jobs create http overterm-sync-daily \
 
 ## 📝 Recent Changes
 
+### v1.5.0 - Sequential Over Term Sync
+- **🔄 Sequential Data Sync** - Modified Over Term dashboard sync to support sequential data requests without truncating the table
+- **🔢 ID Sequence Reset** - Added functionality to reset the auto-incrementing ID sequence before insertion
+- **🧹 Code Cleanup** - Removed redundant truncation functions while maintaining core functionality
+- **📊 Data Accumulation** - Data now accumulates in the table rather than being replaced with each sync
+
 ### v1.4.0 - Enhanced Cancelled Appointments Sync
 - **🔄 Complete Schema Support** - Full field mapping from Rethink API to `cancelled_dump` table
 - **🧩 Schema Alignment** - All fields required by `cancelledAppointments` schema are now captured
