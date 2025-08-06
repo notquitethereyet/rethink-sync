@@ -225,7 +225,7 @@ class OverTermDashboard:
             raise OverTermDashboardError(f"Database connection failed: {e}")
             
     def _reset_id_sequence(self, conn, table_name: str = "overterm_dashboard") -> None:
-        """Reset the ID sequence for the table without truncating data."""
+        """Set the ID sequence to the next available ID to avoid primary key conflicts."""
         try:
             with conn.cursor() as cur:
                 # Check if table exists
@@ -241,7 +241,7 @@ class OverTermDashboard:
                 if not table_exists:
                     raise OverTermDashboardError(f"Table '{table_name}' does not exist")
 
-                # Reset sequence
+                # Get the sequence name for the ID column
                 cur.execute(f"""
                     SELECT pg_get_serial_sequence('"{table_name}"', 'id')
                 """)
@@ -249,8 +249,13 @@ class OverTermDashboard:
                 seq_name = result[0] if result else None
 
                 if seq_name:
-                    cur.execute(f"SELECT setval('{seq_name}', 1, false)")
-                    logger.debug(f"Reset sequence {seq_name}")
+                    # Find the maximum ID value currently in the table
+                    cur.execute(f'SELECT COALESCE(MAX(id), 0) + 1 FROM "{table_name}"')
+                    next_id = cur.fetchone()[0]
+                    
+                    # Set the sequence to the next available ID
+                    cur.execute(f"SELECT setval('{seq_name}', {next_id}, false)")
+                    logger.debug(f"Set sequence {seq_name} to next available ID: {next_id}")
 
                 conn.commit()
         except Exception as e:
