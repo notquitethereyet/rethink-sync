@@ -163,16 +163,22 @@ curl -X POST http://localhost:8080/run \
 
 ## 🌐 API Endpoints (Cloud Run)
 
+### Default Category
 | Endpoint | Method | Description |
 |----------|--------|-------------|
 | `/` | GET | Service information and status |
 | `/health` | GET | Comprehensive health check with dependency validation |
 | `/ready` | GET | Kubernetes-style readiness check |
+| `/docs` | GET | Interactive API documentation |
+| `/redoc` | GET | Alternative API documentation |
+
+### Sync Operations Category
+| Endpoint | Method | Description |
+|----------|--------|-------------|
 | `/run` | POST | Execute appointment data sync |
 | `/overterm-dashboard` | POST | Fetch Over Term dashboard data (read-only) |
 | `/overterm-sync` | POST | Execute Over Term dashboard sync to database |
-| `/docs` | GET | Interactive API documentation |
-| `/redoc` | GET | Alternative API documentation |
+| `/cancelled-appointments-sync` | POST | Sync cancelled appointments to database |
 
 ### Authentication
 - Optional API key authentication via `auth_key` in JSON body or `X-Auth-Key` header

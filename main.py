@@ -245,7 +245,7 @@ async def readiness_check():
 
 
 
-@app.post("/run")
+@app.post("/run", response_model=SyncResponse, tags=["Sync Operations"], summary="Run Sync Operation")
 async def run_sync_post(request: Request) -> Dict[str, Any]:
     """
     POST version of the sync endpoint for webhook compatibility.
@@ -382,7 +382,7 @@ async def run_sync_post(request: Request) -> Dict[str, Any]:
 
 
 
-@app.post("/overterm-dashboard")
+@app.post("/overterm-dashboard", response_model=DashboardResponse, tags=["Sync Operations"], summary="Get Overterm Dashboard Post")
 async def get_overterm_dashboard_post(request: Request) -> Dict[str, Any]:
     """POST version of the overterm-dashboard endpoint."""
     try:
@@ -449,7 +449,7 @@ async def get_overterm_dashboard_post(request: Request) -> Dict[str, Any]:
 
 
 
-@app.post("/overterm-sync")
+@app.post("/overterm-sync", response_model=SyncResponse, tags=["Sync Operations"], summary="Sync Overterm Dashboard Post")
 async def sync_overterm_dashboard_post(request: Request) -> Dict[str, Any]:
     """POST version of the overterm-sync endpoint."""
     try:
