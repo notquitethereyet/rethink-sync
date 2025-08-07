@@ -302,7 +302,7 @@ class OverTermDashboard:
             referring_provider_code   # Use name code instead of full ReferringProviderName
         ]
 
-    def _insert_overterm_data(self, conn, auth_details: List[Dict[str, Any]], table_name: str = "overterm_dashboard") -> tuple[int, int]:
+    def _insert_overterm_data(self, conn, auth_details: List[Dict[str, Any]], client_id: int = None, table_name: str = "overterm_dashboard") -> tuple[int, int]:
         """Insert Over Term authorization data into database using batch operations."""
         logger.info(f"Starting insertion of {len(auth_details)} authorization records")
 
@@ -314,6 +314,9 @@ class OverTermDashboard:
         for i, auth_detail in enumerate(auth_details):
             try:
                 values = self._prepare_authorization_data(auth_detail)
+                # Add client_id to each record if provided
+                if client_id is not None:
+                    values.append(client_id)
                 all_values.append(values)
             except Exception as e:
                 error_count += 1
@@ -328,17 +331,36 @@ class OverTermDashboard:
                     batch = all_values[i:i+batch_size]
 
                     # Construct batch insert query
-                    placeholders = ','.join(['(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)'] * len(batch))
-                    flattened_values = [item for sublist in batch for item in sublist]
-
-                    query = f"""
-                        INSERT INTO "{table_name}" (
+                    # Check if client_id is included
+                    has_client_id = client_id is not None
+                    
+                    if has_client_id:
+                        placeholders = ','.join(['(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)'] * len(batch))
+                        column_list = """
+                            clientname, fundername, serviceline, authorizationnumber,
+                            authorizationunit, dates, billingcodes, servicename,
+                            billcode, schedulinggoal, totalschedgoal, totalauthhours,
+                            schedhours, unschedhours, verifiedhours, schedauth,
+                            schedgoal, daysuntilexpiration, authorizationstatus,
+                            renderingprovider, procedurecodeid, referringprovidername,
+                            "clientID"
+                        """
+                    else:
+                        placeholders = ','.join(['(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)'] * len(batch))
+                        column_list = """
                             clientname, fundername, serviceline, authorizationnumber,
                             authorizationunit, dates, billingcodes, servicename,
                             billcode, schedulinggoal, totalschedgoal, totalauthhours,
                             schedhours, unschedhours, verifiedhours, schedauth,
                             schedgoal, daysuntilexpiration, authorizationstatus,
                             renderingprovider, procedurecodeid, referringprovidername
+                        """
+                    
+                    flattened_values = [item for sublist in batch for item in sublist]
+
+                    query = f"""
+                        INSERT INTO "{table_name}" (
+                            {column_list}
                         ) VALUES {placeholders}
                     """
 
@@ -401,6 +423,12 @@ class OverTermDashboard:
 
             # Connect to database and sync data
             db_url = self._get_database_url()
+            
+            # Extract client_id from the request if available
+            client_id = None
+            if client_ids and len(client_ids) == 1:
+                client_id = client_ids[0]
+                logger.info(f"Using client_id {client_id} for database insertion")
 
             with self._connect_database(db_url) as conn:
                 # No longer truncating existing data - sequential requests will append data
@@ -408,7 +436,7 @@ class OverTermDashboard:
                 self._reset_id_sequence(conn, table_name)
                 
                 # Insert new data
-                success_count, error_count = self._insert_overterm_data(conn, auth_details, table_name)
+                success_count, error_count = self._insert_overterm_data(conn, auth_details, client_id, table_name)
 
                 logger.info(f"Sync completed: {len(auth_details)} records processed, {success_count} inserted, {error_count} errors")
 
